@@ -1,42 +1,27 @@
 # Monkey Business
 
-A collection of browser userscripts for Greasemonkey, Violentmonkey, Tampermonkey, and compatible userscript managers.
+A collection of browser userscripts for [Violentmonkey](https://violentmonkey.github.io/), [Tampermonkey](https://www.tampermonkey.net/), [Greasemonkey](https://www.greasespot.net/) and other compatible userscript managers.
 
-## Repository layout
+## Scripts
 
-```text
-userscripts/
-  example.com/
-    script-name.user.js
-  another-site.com/
-    another-script.user.js
-```
+### xkcd.com
 
-Organize scripts by the primary website they target. Use a lowercase website hostname for the directory and a descriptive `.user.js` filename for each script. Scripts that target several unrelated websites can go in `userscripts/multi-site/`.
+| Script | Description | Install |
+| --- | --- | --- |
+| Fit to Screen | Slim header and a comic scaled to fill the window. Press `C` to toggle. | [Install](https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/xkcd.com/xkcd-fit-to-screen.user.js) |
+| Instant Navigation | Prefetches neighbouring comics and switches between them without a page reload. | [Install](https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/xkcd.com/xkcd-instant-navigation.user.js) |
+| Keyboard Shortcuts | Arrows or `A`/`D`, `Home`/`End`, `R` random, `T` alt text, `I` info, `E` Explain xkcd, `?` help. | [Install](https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/xkcd.com/xkcd-keyboard-shortcuts.user.js) |
 
-## Adding a userscript
+The three xkcd scripts are designed to work together but each runs on its own.
 
-1. Add a new `userscripts/<website>/<script-name>.user.js` file.
-2. Put the `==UserScript==` metadata block at the very top of the file.
-3. Include a focused `@match` or `@include` rule so the script only runs where intended.
-4. Document any required permissions with `@grant` and keep the script self-contained when practical.
+## Installing
 
-Example metadata block:
+1. Install a userscript manager in your browser.
+2. Click an **Install** link above (or open the script's raw GitHub URL).
+3. Confirm the installation in the manager's prompt.
 
-```javascript
-// ==UserScript==
-// @name         My userscript
-// @namespace    https://github.com/<your-username>/monkey-business
-// @version      1.0.0
-// @description  Describe what this script changes.
-// @author       Your name
-// @match        https://example.com/*
-// @grant        none
-// ==/UserScript==
-```
-
-Scripts can be installed by opening their raw GitHub URL in a compatible userscript manager. Public contributions should include a clear description and avoid exposing credentials, tokens, or personal data.
+Scripts include `@updateURL`/`@downloadURL`, so your manager can pick up new versions automatically.
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+[MIT](LICENSE)
