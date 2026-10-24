@@ -10,7 +10,7 @@ A collection of browser userscripts for [Violentmonkey](https://violentmonkey.gi
 | --- | --- | --- |
 | <img src="userscripts/xkcd.com/icons/fit-to-screen.png" width="32" alt=""> Fit to Screen | Slim header and a comic scaled to fill the window. Press `C` to toggle. | [Install](https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/xkcd.com/xkcd-fit-to-screen.user.js) |
 | <img src="userscripts/xkcd.com/icons/instant-navigation.png" width="32" alt=""> Instant Navigation | Prefetches neighbouring comics and switches between them without a page reload. | [Install](https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/xkcd.com/xkcd-instant-navigation.user.js) |
-| <img src="userscripts/xkcd.com/icons/keyboard-shortcuts.png" width="32" alt=""> Keyboard Shortcuts | Arrows or `A`/`D`, `Home`/`End`, `R` random, `T` alt text, `I` info, `E` Explain xkcd, `?` help. | [Install](https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/xkcd.com/xkcd-keyboard-shortcuts.user.js) |
+| <img src="userscripts/xkcd.com/icons/keyboard-shortcuts.png" width="32" alt=""> Keyboard Shortcuts | Arrows or `A`/`D`, `Home`/`End`, `R` random, `T` alt text, `I` info, `E` Explain xkcd (also an Explain button next to Random), `H` help. | [Install](https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/xkcd.com/xkcd-keyboard-shortcuts.user.js) |
 
 The three xkcd scripts are designed to work together but each runs on its own.
 

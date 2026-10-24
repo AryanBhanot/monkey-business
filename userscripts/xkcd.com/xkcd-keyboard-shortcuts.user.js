@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name        xkcd – Keyboard Shortcuts
 // @namespace   https://github.com/AryanBhanot/monkey-business
-// @description Keyboard navigation for xkcd.com: arrows or A/D, first/latest, random, alt text, info panel and Explain xkcd.
+// @description Keyboard navigation for xkcd.com: arrows or A/D, first/latest, random, alt text, info panel and Explain xkcd (also as a button next to Random).
 // @author      AryanBhanot
 // @icon        https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/xkcd.com/icons/keyboard-shortcuts.png
 // @match       https://xkcd.com/*
 // @match       https://www.xkcd.com/*
-// @version     1.0.0
+// @version     1.1.0
 // @license     MIT
 // @homepageURL https://github.com/AryanBhanot/monkey-business
 // @supportURL  https://github.com/AryanBhanot/monkey-business/issues
@@ -137,7 +137,7 @@
         ["T", "Show / hide alt text"],
         ["I", "Info: permalink, image file, Explain xkcd"],
         ["E", "Open Explain xkcd in a new tab"],
-        ["?", "Show / hide this help"],
+        ["H", "Show / hide this help"],
         ["Esc", "Close any open panel"],
     ];
 
@@ -154,10 +154,38 @@
         });
     }
 
-    // Close the panels whenever the comic changes (the Instant Navigation script swaps the
-    // comic in place, so there is no page load to clear them).
+    // ---- Explain xkcd button --------------------------------------------
+    // Adds an "Explain" button after Random in each nav bar. Instant Navigation replaces the
+    // nav bars on every comic change, so this runs again after each swap.
+    function addExplainButtons() {
+        const n = comicNumber();
+        if (!n) return;
+        for (const rand of document.querySelectorAll('ul.comicNav a[href*="random"]')) {
+            const li = rand.closest("li");
+            if (!li || (li.nextElementSibling && li.nextElementSibling.classList.contains("xkp-explain"))) continue;
+            const item = document.createElement("li");
+            item.className = "xkp-explain";
+            const a = document.createElement("a");
+            a.href = "https://www.explainxkcd.com/wiki/index.php/" + n;
+            a.textContent = "Explain";
+            a.title = "Explain xkcd (E)";
+            a.target = "_blank";
+            a.rel = "noopener";
+            item.append(a);
+            li.after(item);
+        }
+    }
+    addExplainButtons();
+
+    // Close the panels and refresh the button whenever the comic changes (the Instant
+    // Navigation script swaps the comic in place, so there is no page load to clear them).
     const mc = document.getElementById("middleContainer");
-    if (mc) new MutationObserver(closeOverlays).observe(mc, { childList: true });
+    if (mc) {
+        new MutationObserver(() => {
+            closeOverlays();
+            addExplainButtons();
+        }).observe(mc, { childList: true });
+    }
 
     // ---- Keyboard -------------------------------------------------------
     // Letters are matched by the character typed, and by physical key position on layouts
@@ -172,7 +200,7 @@
         if (e.repeat || e.altKey || e.ctrlKey || e.metaKey) return;
         const t = e.target;
         if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-        if (e.shiftKey && e.key !== "?") return;
+        if (e.shiftKey) return;
 
         let link = null;
         switch (keyName(e)) {
@@ -209,7 +237,7 @@
                 }
                 return;
             }
-            case "?":
+            case "h":
                 e.preventDefault();
                 toggleHelp();
                 return;
