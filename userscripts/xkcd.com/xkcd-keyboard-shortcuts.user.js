@@ -3,6 +3,7 @@
 // @namespace   https://github.com/AryanBhanot/monkey-business
 // @description Keyboard navigation for xkcd.com: arrows or A/D, first/latest, random, alt text, info panel and Explain xkcd.
 // @author      AryanBhanot
+// @icon        https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/xkcd.com/icons/keyboard-shortcuts.png
 // @match       https://xkcd.com/*
 // @match       https://www.xkcd.com/*
 // @version     1.0.0

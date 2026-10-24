@@ -6,3 +6,5 @@ Thumbs.db
 
 # Temporary userscript backups
 *.user.js~
+# Full-size source artwork for the icons (kept locally only)
+userscripts/*/icons/originals/

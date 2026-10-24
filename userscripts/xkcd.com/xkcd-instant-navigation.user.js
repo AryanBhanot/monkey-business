@@ -3,6 +3,7 @@
 // @namespace   https://github.com/AryanBhanot/monkey-business
 // @description Prefetches neighbouring xkcd comics and switches between them instantly, without a full page reload.
 // @author      AryanBhanot
+// @icon        https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/xkcd.com/icons/instant-navigation.png
 // @match       https://xkcd.com/*
 // @match       https://www.xkcd.com/*
 // @version     1.0.0

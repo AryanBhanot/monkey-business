@@ -3,6 +3,7 @@
 // @namespace   https://github.com/AryanBhanot/monkey-business
 // @description Compact layout for xkcd.com: slim header, and the comic scaled to fill the window. Press C to toggle.
 // @author      AryanBhanot
+// @icon        https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/xkcd.com/icons/fit-to-screen.png
 // @match       https://xkcd.com/*
 // @match       https://www.xkcd.com/*
 // @version     1.0.0
