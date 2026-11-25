@@ -16,14 +16,14 @@ A collection of browser userscripts for [Violentmonkey](https://violentmonkey.gi
 
 | Script | Description | Install |
 | --- | --- | --- |
-| Google Play – Toolbox | Adds link buttons next to the Install button on app pages and search results: APKM (APKMirror), AP (Android Police), AB (AppBrain), Beta (join/leave page) and Exodus (Exodus Privacy). Links that go through Google's redirector (google.com/url?q=...) are pointed straight at their destination. A gear at the end of the row lets you turn each button, and the redirect skipping, on or off. More features are added over time. | [Install](https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/google-play-toolbox.user.js) |
+| <img src="userscripts/play.google.com/icons/play-store-tweaks.png" width="32" alt=""> Google Play Store Tweaks | Extra links, shortcuts and fixes for the Google Play Store. Adds buttons next to Install on app pages and search results: APKM (APKMirror), AP (Android Police), AB (AppBrain), Exodus (Exodus Privacy), Beta (join/leave page) and Copy (app name, developer, package and link as Markdown, BBCode or plain text). Links that go through Google's redirector are pointed straight at their destination. A gear at the end of the row turns each feature on or off. | [Install](https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/play-store-tweaks.user.js) |
 
 The three xkcd scripts are designed to work together but each runs on its own.
 
 ## Installing
 
 1. Install a userscript manager in your browser.
-2. Click an **Install** link above to open the script on [Greasy Fork](https://greasyfork.org/), then click its install button. (You can also open a script's raw GitHub URL from [userscripts/xkcd.com](userscripts/xkcd.com).)
+2. Click the **Install** link next to the script you want. It opens the script (on [Greasy Fork](https://greasyfork.org/) or as a raw `.user.js` file on GitHub), and your manager offers to install it.
 3. Confirm the installation in the manager's prompt.
 
 Scripts include `@updateURL`/`@downloadURL`, so your manager can pick up new versions automatically.

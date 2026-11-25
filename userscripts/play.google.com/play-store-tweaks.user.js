@@ -1,15 +1,16 @@
 // ==UserScript==
-// @name        Google Play – Toolbox
+// @name        Google Play Store Tweaks
 // @namespace   https://github.com/AryanBhanot/monkey-business
-// @description Adds link buttons (APKMirror, Android Police, AppBrain, Beta, Exodus Privacy) next to the Install button on the Google Play Store website.
+// @description Extra links, shortcuts and fixes for the Google Play Store
 // @author      AryanBhanot
+// @icon        https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/icons/play-store-tweaks.png
 // @match       https://play.google.com/store/*
-// @version     0.6.0
+// @version     0.7.0
 // @license     MIT
 // @homepageURL https://github.com/AryanBhanot/monkey-business
 // @supportURL  https://github.com/AryanBhanot/monkey-business/issues
-// @updateURL   https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/google-play-toolbox.user.js
-// @downloadURL https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/google-play-toolbox.user.js
+// @updateURL   https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/play-store-tweaks.user.js
+// @downloadURL https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/play-store-tweaks.user.js
 // @run-at      document-idle
 // @noframes
 // @grant       GM_getValue
@@ -29,9 +30,18 @@
         { key: "apkmirror", label: "APKM", name: "APKMirror", color: "#ff8b14", url: c => `https://www.apkmirror.com/?post_type=app_release&searchtype=apk&s=${enc(c.pkg)}` },
         { key: "androidpolice", label: "AP", name: "Android Police", color: "#202124", url: c => `https://www.androidpolice.com/?s=${enc(c.title)}` },
         { key: "appbrain", label: "AB", name: "AppBrain", color: "#3f51b5", url: c => `https://www.appbrain.com/app/${enc(c.pkg)}` },
-        { key: "beta", label: "Beta", name: "Beta testing page", color: "#8e24aa", url: c => `https://play.google.com/apps/testing/${enc(c.pkg)}` },
         { key: "exodus", label: "Exodus", name: "Exodus Privacy report", color: "#1565c0", url: c => `https://reports.exodus-privacy.eu.org/en/search/${enc(c.pkg)}/` },
+        // Beta and Copy sit together at the end: they are about this app on Play itself.
+        { key: "beta", label: "Beta", name: "Beta testing page", color: "#8e24aa", url: c => `https://play.google.com/apps/testing/${enc(c.pkg)}` },
+        { key: "copy", label: "Copy", name: "Copy app info", color: "#455a64", copy: true },
     ];
+
+    // What "Copy" puts on the clipboard, in the format chosen in settings.
+    const FORMATS = {
+        markdown: { name: "Markdown", text: i => `[${i.title}](${i.url})${i.dev ? " by " + i.dev : ""} (\`${i.pkg}\`)` },
+        bbcode: { name: "BBCode", text: i => `[url=${i.url}]${i.title}[/url]${i.dev ? " by " + i.dev : ""} (${i.pkg})` },
+        plain: { name: "Plain text", text: i => `${i.title}${i.dev ? " by " + i.dev : ""}\n${i.pkg}\n${i.url}` },
+    };
 
     // ---- Settings: which buttons are shown ---------------------------------
     // Stored by the userscript manager (falls back to localStorage).
@@ -61,6 +71,8 @@
 .gpt-bar.gpt-inline { margin-right: -8px; }
 .gpt-bar.gpt-stack { display: flex; justify-content: center; gap: 6px; margin: 12px 0; }
 .gpt-bar.gpt-stack .gpt-btn { padding: 0 10px; } /* phones: keep everything on one line */
+.gpt-br { display: none; }
+.gpt-bar.gpt-stack .gpt-br { display: block; flex-basis: 100%; height: 0; } /* phones: lookups on one row, Beta/Copy/gear on the next */
 .gpt-bar.gpt-below { display: flex; margin: 12px 0 0; }
 .gpt-bar.gpt-float { position: fixed; right: 16px; bottom: 16px; z-index: 2147483000; margin: 0; padding: 8px; background: #fff;
     border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.3); }
@@ -239,28 +251,61 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
         if (parseFloat(cs.fontSize) > 0) bar.style.setProperty("--gpt-fs", cs.fontSize);
         if (cs.letterSpacing && cs.letterSpacing !== "normal") bar.style.setProperty("--gpt-ls", cs.letterSpacing);
         for (const l of LINKS.filter(isOn)) {
-            const a = document.createElement("a");
+            if (l.key === "beta" && bar.children.length) { const br = document.createElement("span"); br.className = "gpt-br"; bar.append(br); }
+            const a = document.createElement(l.copy ? "button" : "a");
             a.className = "gpt-btn";
             a._link = l;
             a.dataset.k = l.key;
             a.textContent = l.label;
             a.title = l.name;
-            a.href = l.url({ pkg: t.pkg, title });
-            a.target = "_blank";
-            a.rel = "noopener noreferrer";
+            if (l.copy) {
+                a.type = "button";
+                a.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); copyInfo(a, bar); });
+            } else {
+                a.href = l.url({ pkg: t.pkg, title });
+                a.target = "_blank";
+                a.rel = "noopener noreferrer";
+            }
             a.style.backgroundColor = l.color;
             bar.append(a);
         }
         const gear = document.createElement("button");
         gear.type = "button";
         gear.className = "gpt-gear";
-        gear.title = "Toolbox settings";
-        gear.setAttribute("aria-label", "Toolbox settings");
+        gear.title = "Store Tweaks settings";
+        gear.setAttribute("aria-label", "Store Tweaks settings");
         gear.append(gearIcon());
         gear.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); toggleSettings(gear); });
         hoverClose(gear);
         bar.append(gear);
         return bar;
+    }
+
+    // Copy button: gathers the app's details when clicked (so it is never stale),
+    // formats them and puts them on the clipboard.
+    function copyInfo(btn, bar) {
+        const pkg = bar.dataset.key.split("|")[0], title = bar.dataset.title || pkg;
+        // The developer link only exists on the app's own page.
+        const devEl = detailsPkg() ? [...document.querySelectorAll('a[href*="/store/apps/dev"]')].find(visible) : null;
+        const dev = devEl ? devEl.textContent.trim() : "";
+        const fmt = FORMATS[enabled.copyFormat] || FORMATS.markdown;
+        const text = fmt.text({ pkg, title, dev, url: `https://play.google.com/store/apps/details?id=${enc(pkg)}` });
+        const done = ok => {
+            clearTimeout(btn._t);
+            if (!btn._label) { btn._label = btn.textContent; btn.style.minWidth = btn.offsetWidth + "px"; }
+            btn.textContent = ok ? "Copied" : "Failed";
+            btn._t = setTimeout(() => { btn.textContent = btn._label; btn._label = null; btn.style.minWidth = ""; }, 1400);
+        };
+        const fallback = () => {
+            const ta = document.createElement("textarea");
+            ta.value = text; ta.style.cssText = "position:fixed;opacity:0;top:0;left:0";
+            document.body.append(ta); ta.select();
+            let ok = false;
+            try { ok = document.execCommand("copy"); } catch (_) { /* ignore */ }
+            ta.remove(); done(ok);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(() => done(true), fallback);
+        else fallback();
     }
 
     let floatSince = 0; // when we first failed to find any install button on this page
@@ -322,7 +367,7 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
                 bar.dataset.title = j.title;
             } else if (bar.dataset.title !== j.title) {
                 bar.dataset.title = j.title;
-                for (const a of bar.querySelectorAll(".gpt-btn")) a.href = a._link.url({ pkg: j.t.pkg, title: j.title });
+                for (const a of bar.querySelectorAll("a.gpt-btn")) a.href = a._link.url({ pkg: j.t.pkg, title: j.title });
             }
             keep.add(bar);
             if (!bar.classList.contains(mode)) { bar.classList.remove(...MODES); bar.classList.add(mode); }
@@ -366,7 +411,7 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
         panel.id = "gpt-settings";
         const title = document.createElement("div");
         title.className = "gpt-title";
-        title.textContent = "Toolbox buttons";
+        title.textContent = "Store Tweaks";
         const sub = document.createElement("div");
         sub.className = "gpt-sub";
         sub.textContent = "Show next to Install";
@@ -381,6 +426,20 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
             dot.className = "gpt-dot";
             dot.style.background = l.color;
             label.append(box, dot, l.name);
+            panel.append(label);
+        }
+        const subF = document.createElement("div");
+        subF.className = "gpt-sub";
+        subF.textContent = "Copy format";
+        panel.append(subF);
+        for (const [k, f] of Object.entries(FORMATS)) {
+            const label = document.createElement("label");
+            const radio = document.createElement("input");
+            radio.type = "radio";
+            radio.name = "gpt-format";
+            radio.checked = (FORMATS[enabled.copyFormat] ? enabled.copyFormat : "markdown") === k;
+            radio.addEventListener("change", () => { if (radio.checked) { enabled = Object.assign({}, enabled, { copyFormat: k }); save(enabled); } });
+            label.append(radio, f.name);
             panel.append(label);
         }
         const sub2 = document.createElement("div");
@@ -403,7 +462,7 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
     }, true);
     window.addEventListener("scroll", closeSettings, { passive: true });
     if (typeof GM_registerMenuCommand === "function") {
-        GM_registerMenuCommand("Toolbox settings", () => toggleSettings(document.querySelector(".gpt-gear")));
+        GM_registerMenuCommand("Store Tweaks settings", () => toggleSettings(document.querySelector(".gpt-gear")));
     }
 
     // ---- Main loop -------------------------------------------------------------------
@@ -412,7 +471,7 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
     let timer = 0;
     function schedule(delay) {
         if (timer) return;
-        timer = setTimeout(() => { timer = 0; try { update(); } catch (err) { console.error("[Google Play Toolbox]", err); } }, delay || 100);
+        timer = setTimeout(() => { timer = 0; try { update(); } catch (err) { console.error("[Google Play Store Tweaks]", err); } }, delay || 100);
     }
     new MutationObserver(() => schedule()).observe(document.documentElement, { childList: true, subtree: true });
     window.addEventListener("popstate", () => schedule());
