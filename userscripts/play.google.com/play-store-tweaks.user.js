@@ -5,7 +5,7 @@
 // @author      AryanBhanot
 // @icon        https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/icons/play-store-tweaks.png
 // @match       https://play.google.com/store/*
-// @version     0.7.0
+// @version     0.8.0
 // @license     MIT
 // @homepageURL https://github.com/AryanBhanot/monkey-business
 // @supportURL  https://github.com/AryanBhanot/monkey-business/issues
@@ -26,22 +26,28 @@
     // One entry per button: short label on the button, full name in the
     // tooltip and settings. `url` gets { pkg, title }. Nothing is sent anywhere
     // until you click a button.
+    // Default order; the user can drag them into any order in settings.
     const LINKS = [
+        { key: "copy", name: "Copy app info", color: "#455a64", copy: true },
+        { key: "beta", label: "Beta", name: "Beta testing page", color: "#8e24aa", url: c => `https://play.google.com/apps/testing/${enc(c.pkg)}` },
         { key: "apkmirror", label: "APKM", name: "APKMirror", color: "#ff8b14", url: c => `https://www.apkmirror.com/?post_type=app_release&searchtype=apk&s=${enc(c.pkg)}` },
         { key: "androidpolice", label: "AP", name: "Android Police", color: "#202124", url: c => `https://www.androidpolice.com/?s=${enc(c.title)}` },
         { key: "appbrain", label: "AB", name: "AppBrain", color: "#3f51b5", url: c => `https://www.appbrain.com/app/${enc(c.pkg)}` },
         { key: "exodus", label: "Exodus", name: "Exodus Privacy report", color: "#1565c0", url: c => `https://reports.exodus-privacy.eu.org/en/search/${enc(c.pkg)}/` },
-        // Beta and Copy sit together at the end: they are about this app on Play itself.
-        { key: "beta", label: "Beta", name: "Beta testing page", color: "#8e24aa", url: c => `https://play.google.com/apps/testing/${enc(c.pkg)}` },
-        { key: "copy", label: "Copy", name: "Copy app info", color: "#455a64", copy: true },
     ];
 
-    // What "Copy" puts on the clipboard, in the format chosen in settings.
-    const FORMATS = {
-        markdown: { name: "Markdown", text: i => `[${i.title}](${i.url})${i.dev ? " by " + i.dev : ""} (\`${i.pkg}\`)` },
-        bbcode: { name: "BBCode", text: i => `[url=${i.url}]${i.title}[/url]${i.dev ? " by " + i.dev : ""} (${i.pkg})` },
-        plain: { name: "Plain text", text: i => `${i.title}${i.dev ? " by " + i.dev : ""}\n${i.pkg}\n${i.url}` },
-    };
+    // What "Copy" puts on the clipboard. `key` is the short tag shown on the button.
+    const by = i => (i.dev ? " by " + i.dev : "");
+    const escHtml = s => String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]);
+    const FORMATS = [
+        { key: "md", name: "Markdown", text: i => `[${i.title.replace(/[[\]]/g, "\\$&")}](${i.url})${by(i)} (\`${i.pkg}\`)` },
+        { key: "txt", name: "Plain text", text: i => `${i.title}${by(i)}\n${i.pkg}\n${i.url}` },
+        { key: "bb", name: "BBCode", text: i => `[url=${i.url}]${i.title}[/url]${by(i)} (${i.pkg})` },
+        { key: "html", name: "HTML link", text: i => `<a href="${escHtml(i.url)}">${escHtml(i.title)}</a>${escHtml(by(i))} (${escHtml(i.pkg)})` },
+        { key: "url", name: "Link only", text: i => i.url },
+        { key: "id", name: "Package name only", text: i => i.pkg },
+    ];
+    const OLD_FORMATS = { markdown: "md", bbcode: "bb", plain: "txt" }; // names used before 0.8
 
     // ---- Settings: which buttons are shown ---------------------------------
     // Stored by the userscript manager (falls back to localStorage).
@@ -57,6 +63,22 @@
     let enabled = load();
     const isOn = l => enabled[l.key] !== false; // everything is on by default
     let rev = 0; // bumped on every settings change so the bars are rebuilt
+    // Buttons in the user's order (any button they have never ordered goes last).
+    function ordered() {
+        const saved = Array.isArray(enabled.order) ? enabled.order : [];
+        const pos = l => { const i = saved.indexOf(l.key); return i < 0 ? 1000 + LINKS.indexOf(l) : i; };
+        return LINKS.slice().sort((a, b) => pos(a) - pos(b));
+    }
+    function fmtIndex() {
+        const k = OLD_FORMATS[enabled.copyFormat] || enabled.copyFormat;
+        return Math.max(0, FORMATS.findIndex(f => f.key === k));
+    }
+    function setFormat(k) {
+        enabled = Object.assign({}, enabled, { copyFormat: k });
+        save(enabled);
+        for (const b of document.querySelectorAll(".gpt-copy")) labelCopy(b);
+        for (const r of document.querySelectorAll('#gpt-settings input[name="gpt-format"]')) r.checked = r.value === k;
+    }
 
     // ---- Styles -------------------------------------------------------------
     // Sizes (height, radius, font) are copied from Google's own Install button
@@ -70,9 +92,7 @@
 /* Share has its own ~16px left padding; trim so the gaps on both sides of the bar are equal */
 .gpt-bar.gpt-inline { margin-right: -8px; }
 .gpt-bar.gpt-stack { display: flex; justify-content: center; gap: 6px; margin: 12px 0; }
-.gpt-bar.gpt-stack .gpt-btn { padding: 0 10px; } /* phones: keep everything on one line */
-.gpt-br { display: none; }
-.gpt-bar.gpt-stack .gpt-br { display: block; flex-basis: 100%; height: 0; } /* phones: lookups on one row, Beta/Copy/gear on the next */
+.gpt-bar.gpt-stack .gpt-btn { padding: 0 10px; } /* phones: tighter */
 .gpt-bar.gpt-below { display: flex; margin: 12px 0 0; }
 .gpt-bar.gpt-float { position: fixed; right: 16px; bottom: 16px; z-index: 2147483000; margin: 0; padding: 8px; background: #fff;
     border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.3); }
@@ -92,6 +112,28 @@
 .gpt-gear:active { background: rgba(1,135,95,.16); }
 .gpt-btn:focus-visible, .gpt-gear:focus-visible { outline: 2px solid var(--gpt-accent); outline-offset: 2px; }
 .gpt-gear svg { width: 20px; height: 20px; fill: currentColor; pointer-events: none; }
+/* Copy: [icon | format] */
+.gpt-bar .gpt-btn.gpt-copy { gap: 7px; padding: 0 10px; }
+.gpt-copy svg { width: 18px; height: 18px; flex: none; fill: currentColor; pointer-events: none; }
+.gpt-copy .gpt-sep { width: 1px; height: 55%; background: rgba(255,255,255,.5); flex: none; pointer-events: none; }
+.gpt-copy .gpt-fmt { min-width: 4ch; text-align: center; pointer-events: none; }
+/* Settings rows: [checkbox dot name ........ drag handle] */
+#gpt-settings { max-height: calc(100vh - 16px); overflow-y: auto; overscroll-behavior: contain; }
+#gpt-settings .gpt-tag { margin-left: auto; color: var(--gpt-sub); font: 12px/16px ui-monospace, Consolas, monospace; }
+#gpt-settings .gpt-list { position: relative; }
+#gpt-settings .gpt-row { display: flex; align-items: center; }
+#gpt-settings .gpt-row label { flex: 1; padding-right: 4px; }
+#gpt-settings .gpt-row label:hover { background: none; }
+#gpt-settings .gpt-row:hover { background: rgba(1,135,95,.08); }
+#gpt-settings .gpt-handle { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; margin-right: 10px; border-radius: 6px;
+    color: var(--gpt-sub); cursor: grab; touch-action: none; user-select: none; }
+#gpt-settings .gpt-handle:hover, #gpt-settings .gpt-handle:focus-visible { background: rgba(60,64,67,.12); color: var(--gpt-fg); outline: none; }
+#gpt-settings .gpt-handle svg { width: 20px; height: 20px; fill: currentColor; pointer-events: none; }
+#gpt-settings .gpt-row.gpt-dragging { background: var(--gpt-bg); box-shadow: 0 1px 3px rgba(60,64,67,.3), 0 4px 8px 3px rgba(60,64,67,.15); position: relative; z-index: 1; }
+#gpt-settings .gpt-row.gpt-dragging .gpt-handle { cursor: grabbing; }
+html[data-gpt-theme="dark"] #gpt-settings .gpt-row:hover { background: rgba(129,201,149,.12); }
+html[data-gpt-theme="dark"] #gpt-settings .gpt-handle:hover { background: rgba(255,255,255,.1); }
+html[data-gpt-theme="dark"] #gpt-settings .gpt-row label:hover { background: none; }
 #gpt-settings { --gpt-bg: #fff; --gpt-fg: #202124; --gpt-sub: #5f6368; --gpt-line: #e8eaed; --gpt-accent: #01875f;
     position: fixed; z-index: 2147483001; width: 280px; padding: 8px 0 10px; box-sizing: border-box; background: var(--gpt-bg); color: var(--gpt-fg);
     border-radius: 12px; box-shadow: 0 1px 3px rgba(60,64,67,.3), 0 4px 8px 3px rgba(60,64,67,.15);
@@ -229,6 +271,21 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
     }
 
     // ---- Button bar -----------------------------------------------------------------
+    // Material icons
+    const ICON_COPY = "M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z";
+    const ICON_DONE = "M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z";
+    const ICON_FAIL = "M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z";
+    const ICON_DRAG = "M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z";
+    function icon(d) {
+        const NS = "http://www.w3.org/2000/svg";
+        const svg = document.createElementNS(NS, "svg");
+        svg.setAttribute("viewBox", "0 0 24 24");
+        svg.setAttribute("aria-hidden", "true");
+        const path = document.createElementNS(NS, "path");
+        path.setAttribute("d", d);
+        svg.append(path);
+        return svg;
+    }
     function gearIcon() {
         const NS = "http://www.w3.org/2000/svg";
         const svg = document.createElementNS(NS, "svg");
@@ -250,18 +307,24 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
         if (cs.borderRadius && !/%/.test(cs.borderRadius)) bar.style.setProperty("--gpt-r", cs.borderRadius.split(" ")[0]);
         if (parseFloat(cs.fontSize) > 0) bar.style.setProperty("--gpt-fs", cs.fontSize);
         if (cs.letterSpacing && cs.letterSpacing !== "normal") bar.style.setProperty("--gpt-ls", cs.letterSpacing);
-        for (const l of LINKS.filter(isOn)) {
-            if (l.key === "beta" && bar.children.length) { const br = document.createElement("span"); br.className = "gpt-br"; bar.append(br); }
+        for (const l of ordered().filter(isOn)) {
             const a = document.createElement(l.copy ? "button" : "a");
             a.className = "gpt-btn";
             a._link = l;
             a.dataset.k = l.key;
-            a.textContent = l.label;
-            a.title = l.name;
             if (l.copy) {
                 a.type = "button";
+                a.classList.add("gpt-copy");
+                const sep = document.createElement("span"), fmt = document.createElement("span");
+                sep.className = "gpt-sep";
+                fmt.className = "gpt-fmt";
+                a.append(icon(ICON_COPY), sep, fmt);
+                labelCopy(a);
                 a.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); copyInfo(a, bar); });
+                a.addEventListener("wheel", onCopyWheel, { passive: false });
             } else {
+                a.textContent = l.label;
+                a.title = l.name;
                 a.href = l.url({ pkg: t.pkg, title });
                 a.target = "_blank";
                 a.rel = "noopener noreferrer";
@@ -281,6 +344,25 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
         return bar;
     }
 
+    function labelCopy(btn) {
+        const f = FORMATS[fmtIndex()];
+        btn.querySelector(".gpt-fmt").textContent = f.key;
+        btn.title = `Copy app info as ${f.name}\nShift + scroll to change format`;
+        btn.setAttribute("aria-label", `Copy app info as ${f.name}`);
+    }
+    // Shift + mouse wheel over Copy cycles through the formats. One step per
+    // notch; the short cooldown stops a trackpad from spinning through them all.
+    let lastWheel = 0;
+    function onCopyWheel(e) {
+        if (!e.shiftKey) return;
+        e.preventDefault();
+        const d = e.deltaY || e.deltaX; // some browsers turn Shift + wheel into a sideways scroll
+        const now = Date.now();
+        if (!d || now - lastWheel < 120) return;
+        lastWheel = now;
+        setFormat(FORMATS[(fmtIndex() + (d > 0 ? 1 : -1) + FORMATS.length) % FORMATS.length].key);
+    }
+
     // Copy button: gathers the app's details when clicked (so it is never stale),
     // formats them and puts them on the clipboard.
     function copyInfo(btn, bar) {
@@ -288,13 +370,15 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
         // The developer link only exists on the app's own page.
         const devEl = detailsPkg() ? [...document.querySelectorAll('a[href*="/store/apps/dev"]')].find(visible) : null;
         const dev = devEl ? devEl.textContent.trim() : "";
-        const fmt = FORMATS[enabled.copyFormat] || FORMATS.markdown;
+        const fmt = FORMATS[fmtIndex()];
         const text = fmt.text({ pkg, title, dev, url: `https://play.google.com/store/apps/details?id=${enc(pkg)}` });
+        // Swap the copy icon for a tick (or a cross) for a moment; the size never changes.
         const done = ok => {
+            const path = btn.querySelector("path");
             clearTimeout(btn._t);
-            if (!btn._label) { btn._label = btn.textContent; btn.style.minWidth = btn.offsetWidth + "px"; }
-            btn.textContent = ok ? "Copied" : "Failed";
-            btn._t = setTimeout(() => { btn.textContent = btn._label; btn._label = null; btn.style.minWidth = ""; }, 1400);
+            if (path) path.setAttribute("d", ok ? ICON_DONE : ICON_FAIL);
+            btn.setAttribute("aria-label", ok ? "Copied" : "Copy failed");
+            btn._t = setTimeout(() => { if (path) path.setAttribute("d", ICON_COPY); labelCopy(btn); }, 1400);
         };
         const fallback = () => {
             const ta = document.createElement("textarea");
@@ -392,7 +476,57 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
         el.addEventListener("mouseleave", () => {
             if (!document.getElementById("gpt-settings")) return;
             clearTimeout(closeTimer);
-            closeTimer = setTimeout(closeSettings, 250);
+            closeTimer = setTimeout(() => { if (!dragging) closeSettings(); }, 250);
+        });
+    }
+    // Reordering: drag a row by its handle (mouse, pen or touch), or focus the
+    // handle and press the up/down arrow keys. Saved when you let go.
+    let dragging = false;
+    function saveOrder(list) {
+        const order = [...list.children].map(r => r.dataset.key);
+        if (JSON.stringify(order) === JSON.stringify(ordered().map(l => l.key))) return;
+        enabled = Object.assign({}, enabled, { order });
+        save(enabled); rev++; update();
+    }
+    function dragRow(row, handle, list) {
+        handle.addEventListener("pointerdown", e => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            dragging = true;
+            row.classList.add("gpt-dragging");
+            // Listen on the window, not the handle: moving the row in the DOM would
+            // drop pointer capture and strand the drag halfway.
+            const move = ev => {
+                if (ev.pointerId !== e.pointerId) return;
+                // Put the row before the first other row whose middle is below the pointer.
+                for (const r of list.children) {
+                    if (r === row) continue;
+                    const b = r.getBoundingClientRect();
+                    if (ev.clientY < b.top + b.height / 2) { if (row.nextElementSibling !== r) list.insertBefore(row, r); return; }
+                }
+                if (list.lastElementChild !== row) list.append(row);
+            };
+            const end = ev => {
+                if (ev.pointerId !== e.pointerId) return;
+                window.removeEventListener("pointermove", move, true);
+                window.removeEventListener("pointerup", end, true);
+                window.removeEventListener("pointercancel", end, true);
+                row.classList.remove("gpt-dragging");
+                dragging = false;
+                if (list.isConnected) saveOrder(list);
+            };
+            window.addEventListener("pointermove", move, true);
+            window.addEventListener("pointerup", end, true);
+            window.addEventListener("pointercancel", end, true);
+        });
+        handle.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); });
+        handle.addEventListener("keydown", e => {
+            if (e.key === "ArrowUp" && row.previousElementSibling) list.insertBefore(row, row.previousElementSibling);
+            else if (e.key === "ArrowDown" && row.nextElementSibling) row.nextElementSibling.after(row);
+            else return;
+            e.preventDefault();
+            handle.focus();
+            saveOrder(list);
         });
     }
     function placePanel(panel, anchor) {
@@ -414,9 +548,14 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
         title.textContent = "Store Tweaks";
         const sub = document.createElement("div");
         sub.className = "gpt-sub";
-        sub.textContent = "Show next to Install";
-        panel.append(title, sub);
-        for (const l of LINKS) {
+        sub.textContent = "Show next to Install · drag ☰ to reorder";
+        const list = document.createElement("div");
+        list.className = "gpt-list";
+        panel.append(title, sub, list);
+        for (const l of ordered()) {
+            const row = document.createElement("div");
+            row.className = "gpt-row";
+            row.dataset.key = l.key;
             const label = document.createElement("label");
             const box = document.createElement("input");
             box.type = "checkbox";
@@ -426,20 +565,34 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
             dot.className = "gpt-dot";
             dot.style.background = l.color;
             label.append(box, dot, l.name);
-            panel.append(label);
+            const handle = document.createElement("span");
+            handle.className = "gpt-handle";
+            handle.tabIndex = 0;
+            handle.title = "Drag to reorder (or focus and use the arrow keys)";
+            handle.setAttribute("role", "button");
+            handle.setAttribute("aria-label", `Move ${l.name}`);
+            handle.append(icon(ICON_DRAG));
+            dragRow(row, handle, list);
+            row.append(label, handle);
+            list.append(row);
         }
         const subF = document.createElement("div");
         subF.className = "gpt-sub";
-        subF.textContent = "Copy format";
+        subF.textContent = "Copy format · or Shift + scroll on Copy";
         panel.append(subF);
-        for (const [k, f] of Object.entries(FORMATS)) {
+        const cur = FORMATS[fmtIndex()].key;
+        for (const f of FORMATS) {
             const label = document.createElement("label");
             const radio = document.createElement("input");
             radio.type = "radio";
             radio.name = "gpt-format";
-            radio.checked = (FORMATS[enabled.copyFormat] ? enabled.copyFormat : "markdown") === k;
-            radio.addEventListener("change", () => { if (radio.checked) { enabled = Object.assign({}, enabled, { copyFormat: k }); save(enabled); } });
-            label.append(radio, f.name);
+            radio.value = f.key;
+            radio.checked = f.key === cur;
+            radio.addEventListener("change", () => { if (radio.checked) setFormat(f.key); });
+            const tag = document.createElement("span");
+            tag.className = "gpt-tag";
+            tag.textContent = f.key;
+            label.append(radio, f.name, tag);
             panel.append(label);
         }
         const sub2 = document.createElement("div");
