@@ -4,7 +4,7 @@
 // @description Adds link buttons (APKMirror, Android Police, AppBrain, Beta, Exodus Privacy) next to the Install button on the Google Play Store website.
 // @author      AryanBhanot
 // @match       https://play.google.com/store/*
-// @version     0.5.0
+// @version     0.5.1
 // @license     MIT
 // @homepageURL https://github.com/AryanBhanot/monkey-business
 // @supportURL  https://github.com/AryanBhanot/monkey-business/issues
@@ -67,12 +67,14 @@
 .gpt-btn, .gpt-gear { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; height: var(--gpt-h);
     border-radius: var(--gpt-r); font: 500 var(--gpt-fs)/var(--gpt-fs) "Google Sans", Roboto, Arial, sans-serif; letter-spacing: var(--gpt-ls);
     text-decoration: none !important; white-space: nowrap; cursor: pointer; text-shadow: none; -webkit-tap-highlight-color: transparent;
-    will-change: transform; /* greyscale text rendering, like Google's buttons */
-    transition: background-color .15s, box-shadow .15s; }
+    /* Keep each button on its own compositor layer with greyscale text, always (not only
+       while animating), so the text never switches rendering and "glows". Same as Google's buttons. */
+    transform: translateZ(0); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+    transition: background-color .28s cubic-bezier(.4,0,.2,1), box-shadow .28s cubic-bezier(.4,0,.2,1); }
 .gpt-btn { padding: 0 14px; border: 0; color: #fff !important; }
-/* Material-style state layers, like the Install button */
-.gpt-btn:hover { box-shadow: inset 0 0 0 999px rgba(255,255,255,.1), 0 1px 2px rgba(60,64,67,.3); }
-.gpt-btn:active { box-shadow: inset 0 0 0 999px rgba(255,255,255,.16); }
+/* Same state layer as Google's Install button: it DARKENS (#202124 at 16%) and gains a small shadow */
+.gpt-btn:hover, .gpt-btn:focus-visible { box-shadow: inset 0 0 0 999px rgba(32,33,36,.16), 0 1px 2px rgba(60,64,67,.3), 0 1px 3px 1px rgba(60,64,67,.15); }
+.gpt-btn:active { box-shadow: inset 0 0 0 999px rgba(32,33,36,.24); }
 .gpt-gear { width: var(--gpt-h); min-width: 0; min-height: 0; padding: 0; margin: 0; background: transparent; border: 1px solid var(--gpt-outline); color: var(--gpt-accent); }
 .gpt-gear:hover { background: var(--gpt-hover); }
 .gpt-gear:active { background: rgba(1,135,95,.16); }
@@ -89,6 +91,7 @@
 #gpt-settings input { width: 18px; height: 18px; margin: 0; accent-color: var(--gpt-accent); cursor: pointer; }
 #gpt-settings .gpt-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 html[data-gpt-theme="dark"] .gpt-bar { --gpt-accent: #81c995; --gpt-outline: #8e918f; --gpt-hover: rgba(129,201,149,.12); }
+html[data-gpt-theme="dark"] .gpt-btn[data-k="androidpolice"] { background-color: #5f6368 !important; } /* near-black would vanish */
 html[data-gpt-theme="dark"] .gpt-bar.gpt-float { background: #2d2f31; }
 html[data-gpt-theme="dark"] .gpt-gear:active { background: rgba(129,201,149,.2); }
 html[data-gpt-theme="dark"] #gpt-settings { --gpt-bg: #2d2f31; --gpt-fg: #e3e3e3; --gpt-sub: #c4c7c5; --gpt-line: #444746; --gpt-accent: #81c995; }
@@ -238,6 +241,8 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
         for (const l of LINKS.filter(isOn)) {
             const a = document.createElement("a");
             a.className = "gpt-btn";
+            a._link = l;
+            a.dataset.k = l.key;
             a.textContent = l.label;
             a.title = l.name;
             a.href = l.url({ pkg: t.pkg, title });
@@ -276,11 +281,10 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
             const fitKey = [t.pkg, title, rev, window.innerWidth].join("|");
             let slot = slotFrom(t.el);
             if (slot && slot.mode === "inline" && tooNarrow.has(fitKey)) slot = belowRow(slot.node);
-            return { t, title, fitKey, slot, key: [t.pkg, title, rev, slot ? slot.mode : "float"].join("|") };
+            return { t, title, fitKey, slot, key: t.pkg + "|" + rev };
         });
 
         // No install button yet: the page may still be rendering, so wait before floating.
-        let floating = null;
         if (!jobs.length && detailsPkg()) {
             if (!floatSince) floatSince = Date.now();
             if (Date.now() - floatSince < 2000) {
@@ -288,29 +292,32 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
                 schedule(500);
                 return;
             }
-            floating = { t: { pkg: detailsPkg(), btn: document.body }, title: getTitleSafe(), slot: null };
-            floating.key = [floating.t.pkg, floating.title, rev, "float"].join("|");
-            jobs.push(floating);
+            jobs.push({ t: { pkg: detailsPkg(), btn: document.body }, title: getTitleSafe(), slot: null, key: detailsPkg() + "|" + rev, fitKey: "" });
         } else floatSince = 0;
 
+        // Bars are updated in place (title, layout mode, position) and only rebuilt when
+        // the app or the settings change, so nothing flashes while the page settles.
+        const MODES = ["gpt-inline", "gpt-stack", "gpt-below", "gpt-float"];
         for (const j of jobs) {
-            const ok = existing.find(b => b.dataset.key === j.key && b.isConnected &&
-                (j.slot ? b.previousElementSibling === j.slot.node : b.parentElement === document.body));
-            if (ok) keep.add(ok);
-        }
-        for (const b of existing) if (!keep.has(b)) b.remove();
-
-        for (const j of jobs) {
-            if ([...keep].some(b => b.dataset.key === j.key)) continue;
-            const bar = buildBar(j.t, j.title, j.key);
-            if (j.slot) { bar.classList.add("gpt-" + j.slot.mode); j.slot.node.after(bar); }
-            else { bar.classList.add("gpt-float"); document.body.append(bar); }
+            let bar = existing.find(b => b.dataset.key === j.key && !keep.has(b));
+            const mode = "gpt-" + (j.slot ? j.slot.mode : "float");
+            if (!bar) {
+                bar = buildBar(j.t, j.title, j.key);
+                bar.dataset.title = j.title;
+            } else if (bar.dataset.title !== j.title) {
+                bar.dataset.title = j.title;
+                for (const a of bar.querySelectorAll(".gpt-btn")) a.href = a._link.url({ pkg: j.t.pkg, title: j.title });
+            }
             keep.add(bar);
+            if (!bar.classList.contains(mode)) { bar.classList.remove(...MODES); bar.classList.add(mode); }
+            if (j.slot) { if (bar.previousElementSibling !== j.slot.node || !bar.isConnected) j.slot.node.after(bar); }
+            else if (bar.parentElement !== document.body) document.body.append(bar);
             // Wrapped onto more than one line? Then it didn't fit; move it below.
             if (j.slot && j.slot.mode === "inline" && bar.offsetHeight > bar.querySelector(".gpt-btn").offsetHeight + 12) {
                 tooNarrow.add(j.fitKey); schedule(0);
             }
         }
+        for (const b of existing) if (!keep.has(b)) b.remove();
     }
     function getTitleSafe() { const h = titleEl(); return h ? h.textContent.trim() : detailsPkg(); }
 
