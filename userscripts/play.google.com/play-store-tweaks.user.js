@@ -5,7 +5,7 @@
 // @author      AryanBhanot
 // @icon        https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/icons/play-store-tweaks.png?v=0.10.0
 // @match       https://play.google.com/store/*
-// @version     0.10.0
+// @version     0.11.0
 // @license     MIT
 // @homepageURL https://github.com/AryanBhanot/monkey-business
 // @supportURL  https://github.com/AryanBhanot/monkey-business/issues
@@ -174,7 +174,7 @@
     color: var(--gpt-sub); cursor: grab; touch-action: none; user-select: none; }
 .gpt-panel .gpt-handle:hover, .gpt-panel .gpt-handle:focus-visible { background: rgba(60,64,67,.12); color: var(--gpt-fg); outline: none; }
 .gpt-panel .gpt-handle svg { width: 20px; height: 20px; fill: currentColor; pointer-events: none; }
-.gpt-panel .gpt-row { transition: box-shadow .15s; }
+.gpt-panel .gpt-row { transition: box-shadow .15s; user-select: none; }
 .gpt-panel .gpt-row.gpt-dragging { background: var(--gpt-bg); box-shadow: 0 1px 3px rgba(60,64,67,.3), 0 4px 8px 3px rgba(60,64,67,.15); position: relative; z-index: 2; will-change: transform; }
 .gpt-panel.gpt-busy, .gpt-panel.gpt-busy * { user-select: none; cursor: grabbing !important; }
 /* copy-format menu rows: [checkbox  name .... tag  handle]; the one in use is highlighted */
@@ -184,6 +184,7 @@
 .gpt-panel .gpt-row.gpt-current { box-shadow: inset 3px 0 0 var(--gpt-accent); }
 .gpt-panel .gpt-row.gpt-current .gpt-pick { color: var(--gpt-accent); font-weight: 500; }
 .gpt-panel .gpt-hint { padding-top: 10px; }
+html[data-gpt-shots="on"] img[role="button"][src*="play-lh.googleusercontent.com"] { cursor: zoom-in; }
 /* Title row with a Reset button on the right */
 .gpt-panel .gpt-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .gpt-panel .gpt-reset { margin: -4px -8px -4px 0; padding: 4px 8px; border: 0; border-radius: 6px; background: none; color: var(--gpt-accent);
@@ -481,11 +482,28 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         }
     }
 
+    // Screenshots: a click opens the original image (full size, usually a PNG) in a new tab
+    // instead of Play's viewer. Middle-click does the same.
+    const SHOT = 'img[role="button"][src*="play-lh.googleusercontent.com"]';
+    const fullSize = src => src.replace(/=[^/=]*$/, "") + "=s0";
+    function onShot(e) {
+        if (enabled.shots === false || (e.type === "auxclick" && e.button !== 1) || e.button > 1) return;
+        const img = e.target.closest && e.target.closest(SHOT);
+        if (!img || img.closest(".gpt-bar, .gpt-panel")) return;
+        e.preventDefault();
+        e.stopImmediatePropagation(); // before Play's own handler opens its viewer
+        window.open(fullSize(img.currentSrc || img.src), "_blank", "noopener");
+    }
+    window.addEventListener("click", onShot, true);
+    window.addEventListener("auxclick", onShot, true);
+
     // Add, move or remove the bars so there is exactly one after each Install
     // button on the page. Safe to call repeatedly.
     function update() {
         syncTheme();
         unwrapRedirects();
+        const shots = enabled.shots === false ? "off" : "on";
+        if (document.documentElement.dataset.gptShots !== shots) document.documentElement.dataset.gptShots = shots;
         const page = location.pathname + location.search;
         if (page !== lastPage) { lastPage = page; floatSince = 0; }
         const existing = [...document.querySelectorAll(".gpt-bar")];
@@ -639,22 +657,34 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         });
     }
     function dragRow(row, handle, list, commit) {
-        handle.addEventListener("pointerdown", e => {
+        // The whole row drags. Pressing the handle starts at once; pressing anywhere else only
+        // becomes a drag after the pointer moves a few pixels, so ticking and clicking still work.
+        row.addEventListener("pointerdown", e => {
             if (e.button !== 0) return;
-            e.preventDefault();
-            dragging = true;
+            const fromHandle = handle.contains(e.target);
+            if (fromHandle) e.preventDefault();
             const panel = row.closest(".gpt-panel");
-            const grab = e.clientY - row.getBoundingClientRect().top; // where on the row you took hold
-            row.classList.add("gpt-dragging");
-            if (panel) panel.classList.add("gpt-busy");
+            let on = false, grab = 0;
+            const start = () => {
+                on = dragging = true;
+                grab = e.clientY - row.getBoundingClientRect().top; // where on the row you took hold
+                row.classList.add("gpt-dragging");
+                if (panel) panel.classList.add("gpt-busy");
+            };
+            if (fromHandle) start();
             // The row's own slot (offsetTop) ignores transforms, so this is the offset from
             // its slot to the pointer; it stays correct however the other rows move.
             const follow = y => { row.style.transform = `translateY(${y - list.getBoundingClientRect().top - grab - row.offsetTop}px) scale(1.02)`; };
-            follow(e.clientY);
+            if (fromHandle) follow(e.clientY);
             // Listen on the window, not the handle: moving the row in the DOM would
             // drop pointer capture and strand the drag halfway.
             const move = ev => {
                 if (ev.pointerId !== e.pointerId) return;
+                if (!on) {
+                    if (Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) < 5) return;
+                    start();
+                }
+                ev.preventDefault();
                 const centre = ev.clientY - list.getBoundingClientRect().top - grab + row.offsetHeight / 2;
                 let next = null;
                 for (const r of list.children) { if (r !== row && centre < r.offsetTop + r.offsetHeight / 2) { next = r; break; } }
@@ -667,6 +697,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
                 window.removeEventListener("pointermove", move, true);
                 window.removeEventListener("pointerup", end, true);
                 window.removeEventListener("pointercancel", end, true);
+                if (!on) return; // just a click
                 // Drop: settle from where you let go into the slot.
                 const from = row.getBoundingClientRect().top;
                 row.style.transform = "";
@@ -677,6 +708,10 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
                     if (d) row.animate([{ transform: `translateY(${d}px) scale(1.02)` }, { transform: "none" }], { duration: 160, easing: "cubic-bezier(.2,0,0,1)" });
                 }
                 dragging = false;
+                // The release would also count as a click (ticking a box, picking a format): swallow it.
+                const swallow = c => { c.preventDefault(); c.stopPropagation(); };
+                window.addEventListener("click", swallow, { capture: true, once: true });
+                setTimeout(() => window.removeEventListener("click", swallow, true), 0);
                 if (list.isConnected) commit(keysOf(list));
             };
             window.addEventListener("pointermove", move, true);
@@ -751,8 +786,8 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
     function toggleSettings(anchor) {
         if (document.getElementById("gpt-settings")) { closeSettings(); return; }
         closeSettings();
-        const resetKeys = ["order", "unwrap", ...LINKS.map(l => l.key)];
-        const { panel, list } = newPanel("gpt-settings", "Play Store Tweaks", "Show next to Install · drag ☰ to reorder", resetKeys, () => {
+        const resetKeys = ["order", "unwrap", "shots", ...LINKS.map(l => l.key)];
+        const { panel, list } = newPanel("gpt-settings", "Play Store Tweaks", "Show next to Install · drag to reorder", resetKeys, () => {
             // The bars are rebuilt, so reopen on the new gear of the same app.
             const pkg = anchor && anchor.closest(".gpt-bar") ? anchor.closest(".gpt-bar").dataset.key.split("|")[0] : "";
             rev++; update(); closeSettings();
@@ -780,17 +815,23 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
             row.append(label, makeHandle(row, list, l.name, commit));
             list.append(row);
         }
-        const sub2 = subhead("Links");
-        const uLabel = document.createElement("label");
-        const uBox = document.createElement("input");
-        uBox.type = "checkbox";
-        uBox.checked = enabled.unwrap !== false;
-        uBox.addEventListener("change", () => { enabled = Object.assign({}, enabled, { unwrap: uBox.checked }); save(enabled); update(); });
-        uLabel.append(uBox, "Skip Google redirect links");
+        const sub2 = subhead("Page");
+        // A plain on/off option (on by default).
+        const option = (key, text) => {
+            const label = document.createElement("label");
+            const box = document.createElement("input");
+            box.type = "checkbox";
+            box.checked = enabled[key] !== false;
+            box.addEventListener("change", () => { setOpts({ [key]: box.checked }); update(); });
+            label.append(box, text);
+            return label;
+        };
+        const uLabel = option("unwrap", "Skip Google redirect links");
+        const sLabel = option("shots", "Open screenshots full size");
         const tip = document.createElement("div");
         tip.className = "gpt-sub gpt-hint";
         tip.textContent = "Tip: right-click Copy to choose what it copies.";
-        panel.append(sub2, uLabel, tip);
+        panel.append(sub2, uLabel, sLabel, tip);
         document.body.append(panel);
         placePanel(panel, anchor);
     }
@@ -879,7 +920,10 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
     }, true);
     window.addEventListener("scroll", closeSettings, { passive: true });
     if (typeof GM_registerMenuCommand === "function") {
-        GM_registerMenuCommand("Play Store Tweaks settings", () => toggleSettings(document.querySelector(".gpt-gear")));
+        // These open next to the buttons on the page (or in the corner if there are none).
+        const open = (fn, sel) => () => { closeSettings(); fn(document.querySelector(sel)); };
+        GM_registerMenuCommand("Buttons & links…", open(toggleSettings, ".gpt-gear"));
+        GM_registerMenuCommand("Copy options…", open(toggleFormats, ".gpt-copy"));
     }
 
     // ---- Main loop -------------------------------------------------------------------
