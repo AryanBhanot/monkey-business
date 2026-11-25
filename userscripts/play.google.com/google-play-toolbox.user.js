@@ -4,7 +4,7 @@
 // @description Adds link buttons (APKMirror, Android Police, AppBrain, Beta, Exodus Privacy) next to the Install button on the Google Play Store website.
 // @author      AryanBhanot
 // @match       https://play.google.com/store/*
-// @version     0.5.1
+// @version     0.6.0
 // @license     MIT
 // @homepageURL https://github.com/AryanBhanot/monkey-business
 // @supportURL  https://github.com/AryanBhanot/monkey-business/issues
@@ -266,10 +266,26 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
     let floatSince = 0; // when we first failed to find any install button on this page
     let lastPage = "";
 
+    // Links that go through Google's redirector (google.com/url?q=TARGET) are
+    // pointed straight at TARGET, so there is no extra hop and nothing is
+    // reported to Google when you click.
+    const REDIRECT_HOST = /^(www\.)?google\.(com?\.)?[a-z]{2,3}$/;
+    function unwrapRedirects() {
+        if (enabled.unwrap === false) return;
+        for (const a of document.querySelectorAll('a[href*="/url?"]')) {
+            let u;
+            try { u = new URL(a.getAttribute("href"), location.href); } catch (_) { continue; }
+            if (!REDIRECT_HOST.test(u.hostname) || u.pathname !== "/url") continue;
+            const to = u.searchParams.get("q") || u.searchParams.get("url");
+            if (to && /^https?:\/\//i.test(to)) a.setAttribute("href", to);
+        }
+    }
+
     // Add, move or remove the bars so there is exactly one after each Install
     // button on the page. Safe to call repeatedly.
     function update() {
         syncTheme();
+        unwrapRedirects();
         const page = location.pathname + location.search;
         if (page !== lastPage) { lastPage = page; floatSince = 0; }
         const existing = [...document.querySelectorAll(".gpt-bar")];
@@ -367,6 +383,16 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
             label.append(box, dot, l.name);
             panel.append(label);
         }
+        const sub2 = document.createElement("div");
+        sub2.className = "gpt-sub";
+        sub2.textContent = "Links";
+        const uLabel = document.createElement("label");
+        const uBox = document.createElement("input");
+        uBox.type = "checkbox";
+        uBox.checked = enabled.unwrap !== false;
+        uBox.addEventListener("change", () => { enabled = Object.assign({}, enabled, { unwrap: uBox.checked }); save(enabled); update(); });
+        uLabel.append(uBox, "Skip Google redirect links");
+        panel.append(sub2, uLabel);
         hoverClose(panel);
         document.body.append(panel);
         placePanel(panel, anchor);

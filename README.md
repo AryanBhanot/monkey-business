@@ -16,7 +16,7 @@ A collection of browser userscripts for [Violentmonkey](https://violentmonkey.gi
 
 | Script | Description | Install |
 | --- | --- | --- |
-| Google Play – Toolbox | Adds link buttons next to the Install button on app pages and search results: APKM (APKMirror), AP (Android Police), AB (AppBrain), Beta (join/leave page) and Exodus (Exodus Privacy). A gear at the end of the row lets you turn each button on or off. More features are added over time. | [Install](https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/google-play-toolbox.user.js) |
+| Google Play – Toolbox | Adds link buttons next to the Install button on app pages and search results: APKM (APKMirror), AP (Android Police), AB (AppBrain), Beta (join/leave page) and Exodus (Exodus Privacy). Links that go through Google's redirector (google.com/url?q=...) are pointed straight at their destination. A gear at the end of the row lets you turn each button, and the redirect skipping, on or off. More features are added over time. | [Install](https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/google-play-toolbox.user.js) |
 
 The three xkcd scripts are designed to work together but each runs on its own.
 
