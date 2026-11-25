@@ -6,5 +6,6 @@ Thumbs.db
 
 # Temporary userscript backups
 *.user.js~
-# Full-size source artwork for the icons (kept locally only)
+# Full-size source artwork for the icons (kept locally only, except where stored in the repo)
 userscripts/*/icons/originals/
+!userscripts/play.google.com/icons/originals/

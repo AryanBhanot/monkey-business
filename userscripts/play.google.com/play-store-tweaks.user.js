@@ -5,7 +5,7 @@
 // @author      AryanBhanot
 // @icon        https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/icons/play-store-tweaks.png
 // @match       https://play.google.com/store/*
-// @version     0.8.0
+// @version     0.9.0
 // @license     MIT
 // @homepageURL https://github.com/AryanBhanot/monkey-business
 // @supportURL  https://github.com/AryanBhanot/monkey-business/issues
@@ -69,15 +69,31 @@
         const pos = l => { const i = saved.indexOf(l.key); return i < 0 ? 1000 + LINKS.indexOf(l) : i; };
         return LINKS.slice().sort((a, b) => pos(a) - pos(b));
     }
-    function fmtIndex() {
+    // Formats in the user's order, and the ones left ticked (the ones Shift + scroll cycles through).
+    function fmtOrdered() {
+        const saved = Array.isArray(enabled.fmtOrder) ? enabled.fmtOrder : [];
+        const pos = f => { const i = saved.indexOf(f.key); return i < 0 ? 1000 + FORMATS.indexOf(f) : i; };
+        return FORMATS.slice().sort((a, b) => pos(a) - pos(b));
+    }
+    const fmtOn = f => !(Array.isArray(enabled.fmtOff) && enabled.fmtOff.includes(f.key));
+    function fmtActive() {
+        const on = fmtOrdered().filter(fmtOn);
+        return on.length ? on : fmtOrdered(); // never end up with nothing to copy
+    }
+    function curFormat() {
         const k = OLD_FORMATS[enabled.copyFormat] || enabled.copyFormat;
-        return Math.max(0, FORMATS.findIndex(f => f.key === k));
+        const act = fmtActive();
+        return act.find(f => f.key === k) || act[0];
     }
     function setFormat(k) {
         enabled = Object.assign({}, enabled, { copyFormat: k });
         save(enabled);
+        refreshFormats();
+    }
+    function refreshFormats() {
         for (const b of document.querySelectorAll(".gpt-copy")) labelCopy(b);
-        for (const r of document.querySelectorAll('#gpt-settings input[name="gpt-format"]')) r.checked = r.value === k;
+        const menu = document.getElementById("gpt-formats");
+        if (menu) for (const r of menu.querySelectorAll(".gpt-row")) r.classList.toggle("gpt-current", r.dataset.key === curFormat().key);
     }
 
     // ---- Styles -------------------------------------------------------------
@@ -113,43 +129,52 @@
 .gpt-btn:focus-visible, .gpt-gear:focus-visible { outline: 2px solid var(--gpt-accent); outline-offset: 2px; }
 .gpt-gear svg { width: 20px; height: 20px; fill: currentColor; pointer-events: none; }
 /* Copy: [icon | format] */
-.gpt-bar .gpt-btn.gpt-copy { gap: 7px; padding: 0 10px; }
+.gpt-bar .gpt-btn.gpt-copy { gap: 6px; padding: 0 9px 0 10px; }
 .gpt-copy svg { width: 18px; height: 18px; flex: none; fill: currentColor; pointer-events: none; }
-.gpt-copy .gpt-sep { width: 1px; height: 55%; background: rgba(255,255,255,.5); flex: none; pointer-events: none; }
-.gpt-copy .gpt-fmt { min-width: 4ch; text-align: center; pointer-events: none; }
+.gpt-copy .gpt-sep { width: 1px; height: 50%; background: rgba(255,255,255,.5); flex: none; pointer-events: none; }
+/* No fixed width: the button is only as wide as the current tag (md is narrower than html) */
+.gpt-copy .gpt-fmt { font-size: calc(var(--gpt-fs) - 2px); letter-spacing: .2px; pointer-events: none; }
 /* Settings rows: [checkbox dot name ........ drag handle] */
-#gpt-settings { max-height: calc(100vh - 16px); overflow-y: auto; overscroll-behavior: contain; }
-#gpt-settings .gpt-tag { margin-left: auto; color: var(--gpt-sub); font: 12px/16px ui-monospace, Consolas, monospace; }
-#gpt-settings .gpt-list { position: relative; }
-#gpt-settings .gpt-row { display: flex; align-items: center; }
-#gpt-settings .gpt-row label { flex: 1; padding-right: 4px; }
-#gpt-settings .gpt-row label:hover { background: none; }
-#gpt-settings .gpt-row:hover { background: rgba(1,135,95,.08); }
-#gpt-settings .gpt-handle { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; margin-right: 10px; border-radius: 6px;
+.gpt-panel { max-height: calc(100vh - 16px); overflow-y: auto; overscroll-behavior: contain; }
+.gpt-panel .gpt-tag { margin-left: auto; color: var(--gpt-sub); font: 12px/16px ui-monospace, Consolas, monospace; }
+.gpt-panel .gpt-list { position: relative; }
+.gpt-panel .gpt-row { display: flex; align-items: center; }
+.gpt-panel .gpt-row label { flex: 1; padding-right: 4px; }
+.gpt-panel .gpt-row label:hover { background: none; }
+.gpt-panel .gpt-row:hover { background: rgba(1,135,95,.08); }
+.gpt-panel .gpt-handle { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; margin-right: 10px; border-radius: 6px;
     color: var(--gpt-sub); cursor: grab; touch-action: none; user-select: none; }
-#gpt-settings .gpt-handle:hover, #gpt-settings .gpt-handle:focus-visible { background: rgba(60,64,67,.12); color: var(--gpt-fg); outline: none; }
-#gpt-settings .gpt-handle svg { width: 20px; height: 20px; fill: currentColor; pointer-events: none; }
-#gpt-settings .gpt-row.gpt-dragging { background: var(--gpt-bg); box-shadow: 0 1px 3px rgba(60,64,67,.3), 0 4px 8px 3px rgba(60,64,67,.15); position: relative; z-index: 1; }
-#gpt-settings .gpt-row.gpt-dragging .gpt-handle { cursor: grabbing; }
-html[data-gpt-theme="dark"] #gpt-settings .gpt-row:hover { background: rgba(129,201,149,.12); }
-html[data-gpt-theme="dark"] #gpt-settings .gpt-handle:hover { background: rgba(255,255,255,.1); }
-html[data-gpt-theme="dark"] #gpt-settings .gpt-row label:hover { background: none; }
-#gpt-settings { --gpt-bg: #fff; --gpt-fg: #202124; --gpt-sub: #5f6368; --gpt-line: #e8eaed; --gpt-accent: #01875f;
+.gpt-panel .gpt-handle:hover, .gpt-panel .gpt-handle:focus-visible { background: rgba(60,64,67,.12); color: var(--gpt-fg); outline: none; }
+.gpt-panel .gpt-handle svg { width: 20px; height: 20px; fill: currentColor; pointer-events: none; }
+.gpt-panel .gpt-row { transition: box-shadow .15s; }
+.gpt-panel .gpt-row.gpt-dragging { background: var(--gpt-bg); box-shadow: 0 1px 3px rgba(60,64,67,.3), 0 4px 8px 3px rgba(60,64,67,.15); position: relative; z-index: 2; will-change: transform; }
+.gpt-panel.gpt-busy, .gpt-panel.gpt-busy * { user-select: none; cursor: grabbing !important; }
+/* copy-format menu rows: [checkbox  name .... tag  handle]; the one in use is highlighted */
+.gpt-panel .gpt-fcheck { margin-left: 20px; flex: none; }
+.gpt-panel .gpt-pick { flex: 1; display: flex; align-items: center; gap: 8px; padding: 7px 4px 7px 12px; cursor: pointer; outline: none; }
+.gpt-panel .gpt-pick:focus-visible { background: rgba(1,135,95,.12); }
+.gpt-panel .gpt-row.gpt-current { box-shadow: inset 3px 0 0 var(--gpt-accent); }
+.gpt-panel .gpt-row.gpt-current .gpt-pick { color: var(--gpt-accent); font-weight: 500; }
+.gpt-panel .gpt-hint { padding-top: 10px; }
+html[data-gpt-theme="dark"] .gpt-panel .gpt-row:hover { background: rgba(129,201,149,.12); }
+html[data-gpt-theme="dark"] .gpt-panel .gpt-handle:hover { background: rgba(255,255,255,.1); }
+html[data-gpt-theme="dark"] .gpt-panel .gpt-row label:hover { background: none; }
+.gpt-panel { --gpt-bg: #fff; --gpt-fg: #202124; --gpt-sub: #5f6368; --gpt-line: #e8eaed; --gpt-accent: #01875f;
     position: fixed; z-index: 2147483001; width: 280px; padding: 8px 0 10px; box-sizing: border-box; background: var(--gpt-bg); color: var(--gpt-fg);
     border-radius: 12px; box-shadow: 0 1px 3px rgba(60,64,67,.3), 0 4px 8px 3px rgba(60,64,67,.15);
     font: 14px/20px "Google Sans", Roboto, Arial, sans-serif; text-align: left; }
-#gpt-settings .gpt-title { padding: 8px 20px 10px; font-size: 16px; font-weight: 500; border-bottom: 1px solid var(--gpt-line); }
-#gpt-settings .gpt-sub { padding: 8px 20px 4px; color: var(--gpt-sub); font-size: 12px; }
-#gpt-settings label { display: flex; align-items: center; gap: 12px; padding: 7px 20px; cursor: pointer; }
-#gpt-settings label:hover { background: rgba(1,135,95,.08); }
-#gpt-settings input { width: 18px; height: 18px; margin: 0; accent-color: var(--gpt-accent); cursor: pointer; }
-#gpt-settings .gpt-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.gpt-panel .gpt-title { padding: 8px 20px 10px; font-size: 16px; font-weight: 500; border-bottom: 1px solid var(--gpt-line); }
+.gpt-panel .gpt-sub { padding: 8px 20px 4px; color: var(--gpt-sub); font-size: 12px; }
+.gpt-panel label { display: flex; align-items: center; gap: 12px; padding: 7px 20px; cursor: pointer; }
+.gpt-panel label:hover { background: rgba(1,135,95,.08); }
+.gpt-panel input { width: 18px; height: 18px; margin: 0; accent-color: var(--gpt-accent); cursor: pointer; }
+.gpt-panel .gpt-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 html[data-gpt-theme="dark"] .gpt-bar { --gpt-accent: #81c995; --gpt-outline: #8e918f; --gpt-hover: rgba(129,201,149,.12); }
 html[data-gpt-theme="dark"] .gpt-btn[data-k="androidpolice"] { background-color: #5f6368 !important; } /* near-black would vanish */
 html[data-gpt-theme="dark"] .gpt-bar.gpt-float { background: #2d2f31; }
 html[data-gpt-theme="dark"] .gpt-gear:active { background: rgba(129,201,149,.2); }
-html[data-gpt-theme="dark"] #gpt-settings { --gpt-bg: #2d2f31; --gpt-fg: #e3e3e3; --gpt-sub: #c4c7c5; --gpt-line: #444746; --gpt-accent: #81c995; }
-html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201,149,.12); }
+html[data-gpt-theme="dark"] .gpt-panel { --gpt-bg: #2d2f31; --gpt-fg: #e3e3e3; --gpt-sub: #c4c7c5; --gpt-line: #444746; --gpt-accent: #81c995; }
+html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,149,.12); }
 `;
     document.head.append(style);
 
@@ -205,7 +230,7 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
             if (h1) {
                 const top = h1.getBoundingClientRect().bottom;
                 const btn = [...document.querySelectorAll("button")]
-                    .filter(b => !b.closest(".gpt-bar, #gpt-settings") && visible(b) && isFilled(b))
+                    .filter(b => !b.closest(".gpt-bar, .gpt-panel") && visible(b) && isFilled(b))
                     .map(b => ({ b, r: b.getBoundingClientRect() }))
                     .filter(({ r }) => r.top >= top && r.top < top + 400)
                     .sort((x, y) => x.r.top - y.r.top || x.r.left - y.r.left)[0];
@@ -322,6 +347,8 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
                 labelCopy(a);
                 a.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); copyInfo(a, bar); });
                 a.addEventListener("wheel", onCopyWheel, { passive: false });
+                a.addEventListener("contextmenu", e => { e.preventDefault(); e.stopPropagation(); toggleFormats(a); });
+                hoverClose(a);
             } else {
                 a.textContent = l.label;
                 a.title = l.name;
@@ -345,9 +372,9 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
     }
 
     function labelCopy(btn) {
-        const f = FORMATS[fmtIndex()];
+        const f = curFormat();
         btn.querySelector(".gpt-fmt").textContent = f.key;
-        btn.title = `Copy app info as ${f.name}\nShift + scroll to change format`;
+        btn.title = `Copy app info as ${f.name}\nShift + scroll or right-click to change format`;
         btn.setAttribute("aria-label", `Copy app info as ${f.name}`);
     }
     // Shift + mouse wheel over Copy cycles through the formats. One step per
@@ -360,7 +387,8 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
         const now = Date.now();
         if (!d || now - lastWheel < 120) return;
         lastWheel = now;
-        setFormat(FORMATS[(fmtIndex() + (d > 0 ? 1 : -1) + FORMATS.length) % FORMATS.length].key);
+        const act = fmtActive(), i = act.indexOf(curFormat());
+        setFormat(act[(i + (d > 0 ? 1 : -1) + act.length) % act.length].key);
     }
 
     // Copy button: gathers the app's details when clicked (so it is never stale),
@@ -370,7 +398,7 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
         // The developer link only exists on the app's own page.
         const devEl = detailsPkg() ? [...document.querySelectorAll('a[href*="/store/apps/dev"]')].find(visible) : null;
         const dev = devEl ? devEl.textContent.trim() : "";
-        const fmt = FORMATS[fmtIndex()];
+        const fmt = curFormat();
         const text = fmt.text({ pkg, title, dev, url: `https://play.google.com/store/apps/details?id=${enc(pkg)}` });
         // Swap the copy icon for a tick (or a cross) for a moment; the size never changes.
         const done = ok => {
@@ -466,54 +494,81 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
     }
     function getTitleSafe() { const h = titleEl(); return h ? h.textContent.trim() : detailsPkg(); }
 
-    // ---- Settings panel -------------------------------------------------------------
+    // ---- Settings panels ---------------------------------------------------------------
+    // Two panels share one look: the settings (gear) and the copy-format menu (right-click
+    // on Copy). Only one is open at a time.
     let closeTimer = 0;
-    function closeSettings() { clearTimeout(closeTimer); const p = document.getElementById("gpt-settings"); if (p) p.remove(); }
-    // Close as soon as the mouse is off both the panel and the gear (with a short
+    function closeSettings() { clearTimeout(closeTimer); for (const p of document.querySelectorAll(".gpt-panel")) p.remove(); }
+    // Close as soon as the mouse is off both the panel and what opened it (with a short
     // grace period so you can move from one to the other).
     function hoverClose(el) {
         el.addEventListener("mouseenter", () => clearTimeout(closeTimer));
         el.addEventListener("mouseleave", () => {
-            if (!document.getElementById("gpt-settings")) return;
+            if (!document.querySelector(".gpt-panel")) return;
             clearTimeout(closeTimer);
             closeTimer = setTimeout(() => { if (!dragging) closeSettings(); }, 250);
         });
     }
-    // Reordering: drag a row by its handle (mouse, pen or touch), or focus the
-    // handle and press the up/down arrow keys. Saved when you let go.
+
+    // Reordering: drag a row by its handle (mouse, pen or touch), or focus the handle and
+    // press the up/down arrow keys. The row you hold follows the pointer; the others slide
+    // out of the way (FLIP animation) and the order is saved when you let go.
     let dragging = false;
-    function saveOrder(list) {
-        const order = [...list.children].map(r => r.dataset.key);
-        if (JSON.stringify(order) === JSON.stringify(ordered().map(l => l.key))) return;
-        enabled = Object.assign({}, enabled, { order });
-        save(enabled); rev++; update();
+    const reduceMotion = () => !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+    const keysOf = list => [...list.children].map(r => r.dataset.key);
+    // Run `mutate` (which reorders the rows) and slide every row (except `skip`) from where
+    // it was to where it ended up.
+    function flip(list, mutate, skip) {
+        const before = new Map();
+        for (const r of list.children) if (r !== skip) before.set(r, r.getBoundingClientRect().top);
+        mutate();
+        if (reduceMotion()) return;
+        for (const [r, top] of before) {
+            if (r.getAnimations) for (const a of r.getAnimations()) a.cancel(); // read the real slot, not a half-finished slide
+            const d = top - r.getBoundingClientRect().top;
+            if (d && r.animate) r.animate([{ transform: `translateY(${d}px)` }, { transform: "translateY(0)" }], { duration: 200, easing: "cubic-bezier(.2,0,0,1)" });
+        }
     }
-    function dragRow(row, handle, list) {
+    function dragRow(row, handle, list, commit) {
         handle.addEventListener("pointerdown", e => {
             if (e.button !== 0) return;
             e.preventDefault();
             dragging = true;
+            const panel = row.closest(".gpt-panel");
+            const grab = e.clientY - row.getBoundingClientRect().top; // where on the row you took hold
             row.classList.add("gpt-dragging");
+            if (panel) panel.classList.add("gpt-busy");
+            // The row's own slot (offsetTop) ignores transforms, so this is the offset from
+            // its slot to the pointer; it stays correct however the other rows move.
+            const follow = y => { row.style.transform = `translateY(${y - list.getBoundingClientRect().top - grab - row.offsetTop}px) scale(1.02)`; };
+            follow(e.clientY);
             // Listen on the window, not the handle: moving the row in the DOM would
             // drop pointer capture and strand the drag halfway.
             const move = ev => {
                 if (ev.pointerId !== e.pointerId) return;
-                // Put the row before the first other row whose middle is below the pointer.
-                for (const r of list.children) {
-                    if (r === row) continue;
-                    const b = r.getBoundingClientRect();
-                    if (ev.clientY < b.top + b.height / 2) { if (row.nextElementSibling !== r) list.insertBefore(row, r); return; }
-                }
-                if (list.lastElementChild !== row) list.append(row);
+                const centre = ev.clientY - list.getBoundingClientRect().top - grab + row.offsetHeight / 2;
+                let next = null;
+                for (const r of list.children) { if (r !== row && centre < r.offsetTop + r.offsetHeight / 2) { next = r; break; } }
+                const inPlace = next ? row.nextElementSibling === next : list.lastElementChild === row;
+                if (!inPlace) flip(list, () => { if (next) list.insertBefore(row, next); else list.append(row); }, row);
+                follow(ev.clientY);
             };
             const end = ev => {
                 if (ev.pointerId !== e.pointerId) return;
                 window.removeEventListener("pointermove", move, true);
                 window.removeEventListener("pointerup", end, true);
                 window.removeEventListener("pointercancel", end, true);
+                // Drop: settle from where you let go into the slot.
+                const from = row.getBoundingClientRect().top;
+                row.style.transform = "";
                 row.classList.remove("gpt-dragging");
+                if (panel) panel.classList.remove("gpt-busy");
+                if (!reduceMotion() && row.animate) {
+                    const d = from - row.getBoundingClientRect().top;
+                    if (d) row.animate([{ transform: `translateY(${d}px) scale(1.02)` }, { transform: "none" }], { duration: 160, easing: "cubic-bezier(.2,0,0,1)" });
+                }
                 dragging = false;
-                if (list.isConnected) saveOrder(list);
+                if (list.isConnected) commit(keysOf(list));
             };
             window.addEventListener("pointermove", move, true);
             window.addEventListener("pointerup", end, true);
@@ -521,37 +576,65 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
         });
         handle.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); });
         handle.addEventListener("keydown", e => {
-            if (e.key === "ArrowUp" && row.previousElementSibling) list.insertBefore(row, row.previousElementSibling);
-            else if (e.key === "ArrowDown" && row.nextElementSibling) row.nextElementSibling.after(row);
+            let go;
+            if (e.key === "ArrowUp" && row.previousElementSibling) go = () => list.insertBefore(row, row.previousElementSibling);
+            else if (e.key === "ArrowDown" && row.nextElementSibling) go = () => row.nextElementSibling.after(row);
             else return;
             e.preventDefault();
+            flip(list, go, null);
             handle.focus();
-            saveOrder(list);
+            commit(keysOf(list));
         });
     }
-    function placePanel(panel, anchor) {
+    function makeHandle(row, list, name, commit) {
+        const handle = document.createElement("span");
+        handle.className = "gpt-handle";
+        handle.tabIndex = 0;
+        handle.title = "Drag to reorder (or focus and use the arrow keys)";
+        handle.setAttribute("role", "button");
+        handle.setAttribute("aria-label", `Move ${name}`);
+        handle.append(icon(ICON_DRAG));
+        dragRow(row, handle, list, commit);
+        return handle;
+    }
+
+    // Opens below `anchor` (or above if there is no room), right-aligned with it, or
+    // left-aligned when `alignLeft`.
+    function placePanel(panel, anchor, alignLeft) {
         const w = panel.offsetWidth, h = panel.offsetHeight;
         if (!anchor || !anchor.isConnected) { panel.style.right = "16px"; panel.style.bottom = "16px"; return; }
         const r = anchor.getBoundingClientRect();
-        const left = Math.min(Math.max(8, r.right - w), window.innerWidth - w - 8);
-        // Below the gear if it fits, otherwise above. Overlap by 2px so there is no gap to cross.
+        const left = Math.min(Math.max(8, alignLeft ? r.left : r.right - w), window.innerWidth - w - 8);
+        // Below the anchor if it fits, otherwise above. Overlap by 2px so there is no gap to cross.
         const top = r.bottom + h + 8 <= window.innerHeight ? r.bottom - 2 : Math.max(8, r.top - h + 2);
         panel.style.left = left + "px";
         panel.style.top = top + "px";
     }
-    function toggleSettings(anchor) {
-        if (document.getElementById("gpt-settings")) { closeSettings(); return; }
+    function newPanel(id, titleText, subText) {
         const panel = document.createElement("div");
-        panel.id = "gpt-settings";
+        panel.id = id;
+        panel.className = "gpt-panel";
         const title = document.createElement("div");
         title.className = "gpt-title";
-        title.textContent = "Store Tweaks";
+        title.textContent = titleText;
         const sub = document.createElement("div");
         sub.className = "gpt-sub";
-        sub.textContent = "Show next to Install · drag ☰ to reorder";
+        sub.textContent = subText;
         const list = document.createElement("div");
         list.className = "gpt-list";
         panel.append(title, sub, list);
+        return { panel, list };
+    }
+
+    function toggleSettings(anchor) {
+        if (document.getElementById("gpt-settings")) { closeSettings(); return; }
+        closeSettings();
+        const { panel, list } = newPanel("gpt-settings", "Store Tweaks", "Show next to Install · drag ☰ to reorder");
+        const commit = keys => {
+            if (JSON.stringify(keys) === JSON.stringify(ordered().map(l => l.key))) return;
+            enabled = Object.assign({}, enabled, { order: keys });
+            save(enabled); rev++; update();
+        };
         for (const l of ordered()) {
             const row = document.createElement("div");
             row.className = "gpt-row";
@@ -565,35 +648,8 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
             dot.className = "gpt-dot";
             dot.style.background = l.color;
             label.append(box, dot, l.name);
-            const handle = document.createElement("span");
-            handle.className = "gpt-handle";
-            handle.tabIndex = 0;
-            handle.title = "Drag to reorder (or focus and use the arrow keys)";
-            handle.setAttribute("role", "button");
-            handle.setAttribute("aria-label", `Move ${l.name}`);
-            handle.append(icon(ICON_DRAG));
-            dragRow(row, handle, list);
-            row.append(label, handle);
+            row.append(label, makeHandle(row, list, l.name, commit));
             list.append(row);
-        }
-        const subF = document.createElement("div");
-        subF.className = "gpt-sub";
-        subF.textContent = "Copy format · or Shift + scroll on Copy";
-        panel.append(subF);
-        const cur = FORMATS[fmtIndex()].key;
-        for (const f of FORMATS) {
-            const label = document.createElement("label");
-            const radio = document.createElement("input");
-            radio.type = "radio";
-            radio.name = "gpt-format";
-            radio.value = f.key;
-            radio.checked = f.key === cur;
-            radio.addEventListener("change", () => { if (radio.checked) setFormat(f.key); });
-            const tag = document.createElement("span");
-            tag.className = "gpt-tag";
-            tag.textContent = f.key;
-            label.append(radio, f.name, tag);
-            panel.append(label);
         }
         const sub2 = document.createElement("div");
         sub2.className = "gpt-sub";
@@ -604,14 +660,71 @@ html[data-gpt-theme="dark"] #gpt-settings label:hover { background: rgba(129,201
         uBox.checked = enabled.unwrap !== false;
         uBox.addEventListener("change", () => { enabled = Object.assign({}, enabled, { unwrap: uBox.checked }); save(enabled); update(); });
         uLabel.append(uBox, "Skip Google redirect links");
-        panel.append(sub2, uLabel);
+        const tip = document.createElement("div");
+        tip.className = "gpt-sub gpt-hint";
+        tip.textContent = "Tip: right-click Copy to choose what it copies.";
+        panel.append(sub2, uLabel, tip);
         hoverClose(panel);
         document.body.append(panel);
         placePanel(panel, anchor);
     }
+
+    // Right-click on Copy: pick the format (click a name), choose which formats Shift + scroll
+    // cycles through (tick), and put them in the order you like (drag).
+    function toggleFormats(anchor) {
+        if (document.getElementById("gpt-formats")) { closeSettings(); return; }
+        closeSettings();
+        const { panel, list } = newPanel("gpt-formats", "Copy as", "Click one to use it · tick to include it in Shift + scroll · drag ☰ to reorder");
+        const commit = keys => {
+            if (JSON.stringify(keys) === JSON.stringify(fmtOrdered().map(f => f.key))) return;
+            enabled = Object.assign({}, enabled, { fmtOrder: keys });
+            save(enabled);
+        };
+        for (const f of fmtOrdered()) {
+            const row = document.createElement("div");
+            row.className = "gpt-row";
+            row.dataset.key = f.key;
+            const box = document.createElement("input");
+            box.type = "checkbox";
+            box.className = "gpt-fcheck";
+            box.checked = fmtOn(f);
+            box.title = "Include in Shift + scroll";
+            box.setAttribute("aria-label", `Include ${f.name} in Shift + scroll`);
+            box.addEventListener("change", () => {
+                const off = new Set(Array.isArray(enabled.fmtOff) ? enabled.fmtOff : []);
+                if (box.checked) off.delete(f.key); else off.add(f.key);
+                if (FORMATS.every(x => off.has(x.key))) { box.checked = true; return; } // keep at least one
+                enabled = Object.assign({}, enabled, { fmtOff: [...off] });
+                save(enabled);
+                refreshFormats();
+            });
+            const pick = document.createElement("span");
+            pick.className = "gpt-pick";
+            pick.setAttribute("role", "button");
+            pick.tabIndex = 0;
+            const name = document.createElement("span");
+            name.textContent = f.name;
+            const tag = document.createElement("span");
+            tag.className = "gpt-tag";
+            tag.textContent = f.key;
+            pick.append(name, tag);
+            const choose = () => {
+                if (!fmtOn(f)) { box.checked = true; box.dispatchEvent(new Event("change")); }
+                setFormat(f.key);
+            };
+            pick.addEventListener("click", choose);
+            pick.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(); } });
+            row.append(box, pick, makeHandle(row, list, f.name, commit));
+            list.append(row);
+        }
+        hoverClose(panel);
+        document.body.append(panel);
+        refreshFormats();
+        placePanel(panel, anchor, true);
+    }
     document.addEventListener("keydown", e => { if (e.key === "Escape") closeSettings(); }, true);
     document.addEventListener("click", e => {
-        if (!e.target.closest || !e.target.closest("#gpt-settings, .gpt-gear")) closeSettings();
+        if (!e.target.closest || !e.target.closest(".gpt-panel, .gpt-gear")) closeSettings();
     }, true);
     window.addEventListener("scroll", closeSettings, { passive: true });
     if (typeof GM_registerMenuCommand === "function") {
