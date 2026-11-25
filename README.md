@@ -12,6 +12,12 @@ A collection of browser userscripts for [Violentmonkey](https://violentmonkey.gi
 | <img src="userscripts/xkcd.com/icons/instant-navigation.png" width="32" alt=""> Instant Navigation | Prefetches neighbouring comics and switches between them without a page reload. | [Install](https://greasyfork.org/en/scripts/601920-xkcd-instant-navigation) |
 | <img src="userscripts/xkcd.com/icons/keyboard-shortcuts.png" width="32" alt=""> Keyboard Shortcuts | Arrows or `A`/`D`, `Home`/`End`, `R` random, `T` alt text, `I` info, `E` Explain xkcd (also an Explain button next to Random), `H` help. | [Install](https://greasyfork.org/en/scripts/601921-xkcd-keyboard-shortcuts) |
 
+### play.google.com
+
+| Script | Description | Install |
+| --- | --- | --- |
+| Google Play – Toolbox | Adds an APKMirror search button to app pages. More features are added over time. | [Install](https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/google-play-toolbox.user.js) |
+
 The three xkcd scripts are designed to work together but each runs on its own.
 
 ## Installing
