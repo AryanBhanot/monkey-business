@@ -1,11 +1,11 @@
 // ==UserScript==
-// @name        Google Play Store Tweaks
+// @name        Play Store Tweaks
 // @namespace   https://github.com/AryanBhanot/monkey-business
 // @description Extra links, shortcuts and fixes for the Google Play Store
 // @author      AryanBhanot
-// @icon        https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/icons/play-store-tweaks.png
+// @icon        https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/icons/play-store-tweaks.png?v=0.10.0
 // @match       https://play.google.com/store/*
-// @version     0.9.0
+// @version     0.10.0
 // @license     MIT
 // @homepageURL https://github.com/AryanBhanot/monkey-business
 // @supportURL  https://github.com/AryanBhanot/monkey-business/issues
@@ -28,26 +28,44 @@
     // until you click a button.
     // Default order; the user can drag them into any order in settings.
     const LINKS = [
-        { key: "copy", name: "Copy app info", color: "#455a64", copy: true },
         { key: "beta", label: "Beta", name: "Beta testing page", color: "#8e24aa", url: c => `https://play.google.com/apps/testing/${enc(c.pkg)}` },
+        { key: "copy", name: "Copy app info", color: "#455a64", copy: true },
         { key: "apkmirror", label: "APKM", name: "APKMirror", color: "#ff8b14", url: c => `https://www.apkmirror.com/?post_type=app_release&searchtype=apk&s=${enc(c.pkg)}` },
-        { key: "androidpolice", label: "AP", name: "Android Police", color: "#202124", url: c => `https://www.androidpolice.com/?s=${enc(c.title)}` },
+        { key: "androidpolice", label: "AP", name: "Android Police", color: "#e01a4f", url: c => `https://www.androidpolice.com/?s=${enc(c.title)}` }, // their logo red
         { key: "appbrain", label: "AB", name: "AppBrain", color: "#3f51b5", url: c => `https://www.appbrain.com/app/${enc(c.pkg)}` },
         { key: "exodus", label: "Exodus", name: "Exodus Privacy report", color: "#1565c0", url: c => `https://reports.exodus-privacy.eu.org/en/search/${enc(c.pkg)}/` },
     ];
 
-    // What "Copy" puts on the clipboard. `key` is the short tag shown on the button.
-    const by = i => (i.dev ? " by " + i.dev : "");
-    const escHtml = s => String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]);
-    const FORMATS = [
-        { key: "md", name: "Markdown", text: i => `[${i.title.replace(/[[\]]/g, "\\$&")}](${i.url})${by(i)} (\`${i.pkg}\`)` },
-        { key: "txt", name: "Plain text", text: i => `${i.title}${by(i)}\n${i.pkg}\n${i.url}` },
-        { key: "bb", name: "BBCode", text: i => `[url=${i.url}]${i.title}[/url]${by(i)} (${i.pkg})` },
-        { key: "html", name: "HTML link", text: i => `<a href="${escHtml(i.url)}">${escHtml(i.title)}</a>${escHtml(by(i))} (${escHtml(i.pkg)})` },
-        { key: "url", name: "Link only", text: i => i.url },
-        { key: "id", name: "Package name only", text: i => i.pkg },
+    // What "Copy" puts on the clipboard: the ticked fields, in the user's order, written
+    // out in the chosen format. `key` is the short tag shown on the button.
+    const FIELDS = [
+        { key: "name", name: "Name" },
+        { key: "dev", name: "Developer" },
+        { key: "pkg", name: "ID" },
+        { key: "url", name: "Link" },
     ];
-    const OLD_FORMATS = { markdown: "md", bbcode: "bb", plain: "txt" }; // names used before 0.8
+    const escHtml = s => String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]);
+    // `parts` is [{ key, v }] in order. In the link formats, when both the name and the link
+    // are wanted the name becomes the link text (at the name's place) instead of repeating it.
+    function inline(parts, i, w) {
+        if (parts.length === 1 && parts[0].key !== "url") return parts[0].v; // just the ID (or name): copy it bare
+        const merge = parts.some(p => p.key === "name") && parts.some(p => p.key === "url");
+        return parts.filter(p => !(merge && p.key === "url"))
+            .map((p, n) => p.key === "name" ? (merge ? w.link(p.v, i.url) : w.esc(p.v))
+                : p.key === "url" ? w.link(p.v, p.v, true)
+                : p.key === "dev" ? (n ? "by " : "") + w.esc(p.v)
+                : n ? `(${w.code(p.v)})` : w.code(p.v))
+            .join(" ");
+    }
+    const FORMATS = [
+        { key: "md", name: "Markdown", text: (p, i) => inline(p, i, { esc: s => s.replace(/[[\]*_`\\]/g, "\\$&"), code: s => `\`${s}\``, link: (t, u, bare) => (bare ? u : `[${t.replace(/[[\]\\]/g, "\\$&")}](${u})`) }) },
+        { key: "txt", name: "Plain text", text: p => p.map(x => x.v).join("\n") },
+        { key: "bb", name: "BBCode", text: (p, i) => inline(p, i, { esc: s => s, code: s => s, link: (t, u, bare) => (bare ? `[url]${u}[/url]` : `[url=${u}]${t}[/url]`) }) },
+        { key: "html", name: "HTML", text: (p, i) => inline(p, i, { esc: escHtml, code: escHtml, link: (t, u) => `<a href="${escHtml(u)}">${escHtml(t)}</a>` }) },
+        { key: "json", name: "JSON", text: p => JSON.stringify(Object.fromEntries(p.map(x => [{ name: "name", dev: "developer", pkg: "id", url: "url" }[x.key], x.v])), null, 2) },
+    ];
+    // Names used before: 0.8 renamed these; 0.10 replaced "link only" / "package only" with the field filter.
+    const OLD_FORMATS = { markdown: "md", bbcode: "bb", plain: "txt", url: "txt", id: "txt" };
 
     // ---- Settings: which buttons are shown ---------------------------------
     // Stored by the userscript manager (falls back to localStorage).
@@ -61,25 +79,34 @@
         try { if (typeof GM_setValue === "function") GM_setValue(KEY, v); else localStorage.setItem(KEY, JSON.stringify(v)); } catch (_) { /* not saved */ }
     }
     let enabled = load();
+    // Until 0.10 Copy came before Beta by default. If that old default was never changed,
+    // forget it so the new default applies.
+    if (Array.isArray(enabled.order) && enabled.order.join() === "copy,beta,apkmirror,androidpolice,appbrain,exodus") {
+        enabled = Object.assign({}, enabled);
+        delete enabled.order;
+        save(enabled);
+    }
+    const setOpts = o => { enabled = Object.assign({}, enabled, o); save(enabled); };
     const isOn = l => enabled[l.key] !== false; // everything is on by default
     let rev = 0; // bumped on every settings change so the bars are rebuilt
-    // Buttons in the user's order (any button they have never ordered goes last).
-    function ordered() {
-        const saved = Array.isArray(enabled.order) ? enabled.order : [];
-        const pos = l => { const i = saved.indexOf(l.key); return i < 0 ? 1000 + LINKS.indexOf(l) : i; };
-        return LINKS.slice().sort((a, b) => pos(a) - pos(b));
+    // `all` in the order saved under `orderKey` (anything never ordered goes last, in default order).
+    function sortBy(all, orderKey) {
+        const saved = Array.isArray(enabled[orderKey]) ? enabled[orderKey] : [];
+        const pos = x => { const i = saved.indexOf(x.key); return i < 0 ? 1000 + all.indexOf(x) : i; };
+        return all.slice().sort((a, b) => pos(a) - pos(b));
     }
+    const offIn = offKey => x => !(Array.isArray(enabled[offKey]) && enabled[offKey].includes(x.key));
+    const ordered = () => sortBy(LINKS, "order");
     // Formats in the user's order, and the ones left ticked (the ones Shift + scroll cycles through).
-    function fmtOrdered() {
-        const saved = Array.isArray(enabled.fmtOrder) ? enabled.fmtOrder : [];
-        const pos = f => { const i = saved.indexOf(f.key); return i < 0 ? 1000 + FORMATS.indexOf(f) : i; };
-        return FORMATS.slice().sort((a, b) => pos(a) - pos(b));
-    }
-    const fmtOn = f => !(Array.isArray(enabled.fmtOff) && enabled.fmtOff.includes(f.key));
+    const fmtOrdered = () => sortBy(FORMATS, "fmtOrder");
+    const fmtOn = offIn("fmtOff");
     function fmtActive() {
         const on = fmtOrdered().filter(fmtOn);
         return on.length ? on : fmtOrdered(); // never end up with nothing to copy
     }
+    // Fields (name, developer, ...) in the user's order, and whether each is copied.
+    const fieldsOrdered = () => sortBy(FIELDS, "fieldOrder");
+    const fieldOn = offIn("fieldOff");
     function curFormat() {
         const k = OLD_FORMATS[enabled.copyFormat] || enabled.copyFormat;
         const act = fmtActive();
@@ -120,9 +147,10 @@
     transform: translateZ(0); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
     transition: background-color .28s cubic-bezier(.4,0,.2,1), box-shadow .28s cubic-bezier(.4,0,.2,1); }
 .gpt-btn { padding: 0 14px; border: 0; color: #fff !important; }
-/* Same state layer as Google's Install button: it DARKENS (#202124 at 16%) and gains a small shadow */
-.gpt-btn:hover, .gpt-btn:focus-visible { box-shadow: inset 0 0 0 999px rgba(32,33,36,.16), 0 1px 2px rgba(60,64,67,.3), 0 1px 3px 1px rgba(60,64,67,.15); }
-.gpt-btn:active { box-shadow: inset 0 0 0 999px rgba(32,33,36,.24); }
+/* Like Google's Install button: it DARKENS and gains a small shadow. The strength matches
+   the darkest Install hover Play uses (#01875f -> about #095943, i.e. #202124 at ~45%). */
+.gpt-btn:hover, .gpt-btn:focus-visible { box-shadow: inset 0 0 0 999px rgba(32,33,36,.42), 0 1px 2px rgba(60,64,67,.3), 0 1px 3px 1px rgba(60,64,67,.15); }
+.gpt-btn:active { box-shadow: inset 0 0 0 999px rgba(32,33,36,.52); }
 .gpt-gear { width: var(--gpt-h); min-width: 0; min-height: 0; padding: 0; margin: 0; background: transparent; border: 1px solid var(--gpt-outline); color: var(--gpt-accent); }
 .gpt-gear:hover { background: var(--gpt-hover); }
 .gpt-gear:active { background: rgba(1,135,95,.16); }
@@ -156,10 +184,24 @@
 .gpt-panel .gpt-row.gpt-current { box-shadow: inset 3px 0 0 var(--gpt-accent); }
 .gpt-panel .gpt-row.gpt-current .gpt-pick { color: var(--gpt-accent); font-weight: 500; }
 .gpt-panel .gpt-hint { padding-top: 10px; }
+/* Title row with a Reset button on the right */
+.gpt-panel .gpt-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.gpt-panel .gpt-reset { margin: -4px -8px -4px 0; padding: 4px 8px; border: 0; border-radius: 6px; background: none; color: var(--gpt-accent);
+    font: 500 13px/20px "Google Sans", Roboto, Arial, sans-serif; cursor: pointer; }
+.gpt-panel .gpt-reset:hover, .gpt-panel .gpt-reset:focus-visible { background: rgba(1,135,95,.08); outline: none; }
+/* What to copy: one line of small chips, ticked and dragged sideways (the whole chip is the handle) */
+#gpt-formats { width: 320px; }
+.gpt-panel .gpt-chips { position: relative; display: flex; gap: 5px; padding: 4px 16px 6px; }
+.gpt-panel label.gpt-chip { gap: 4px; padding: 4px 8px 4px 6px; border: 1px solid var(--gpt-line2); border-radius: 8px; background: var(--gpt-bg);
+    font-size: 13px; line-height: 18px; white-space: nowrap; cursor: grab; user-select: none; touch-action: none; transition: background-color .15s, border-color .15s; }
+.gpt-panel label.gpt-chip input { width: 15px; height: 15px; }
+.gpt-panel label.gpt-chip:hover { background: rgba(1,135,95,.08); }
+.gpt-panel label.gpt-chip.gpt-on { border-color: var(--gpt-accent); }
+.gpt-panel label.gpt-chip.gpt-dragging { position: relative; z-index: 2; cursor: grabbing; box-shadow: 0 1px 3px rgba(60,64,67,.3), 0 4px 8px 3px rgba(60,64,67,.15); will-change: transform; }
 html[data-gpt-theme="dark"] .gpt-panel .gpt-row:hover { background: rgba(129,201,149,.12); }
 html[data-gpt-theme="dark"] .gpt-panel .gpt-handle:hover { background: rgba(255,255,255,.1); }
 html[data-gpt-theme="dark"] .gpt-panel .gpt-row label:hover { background: none; }
-.gpt-panel { --gpt-bg: #fff; --gpt-fg: #202124; --gpt-sub: #5f6368; --gpt-line: #e8eaed; --gpt-accent: #01875f;
+.gpt-panel { --gpt-bg: #fff; --gpt-fg: #202124; --gpt-sub: #5f6368; --gpt-line: #e8eaed; --gpt-line2: #c4c7c5; --gpt-accent: #01875f;
     position: fixed; z-index: 2147483001; width: 280px; padding: 8px 0 10px; box-sizing: border-box; background: var(--gpt-bg); color: var(--gpt-fg);
     border-radius: 12px; box-shadow: 0 1px 3px rgba(60,64,67,.3), 0 4px 8px 3px rgba(60,64,67,.15);
     font: 14px/20px "Google Sans", Roboto, Arial, sans-serif; text-align: left; }
@@ -170,10 +212,10 @@ html[data-gpt-theme="dark"] .gpt-panel .gpt-row label:hover { background: none; 
 .gpt-panel input { width: 18px; height: 18px; margin: 0; accent-color: var(--gpt-accent); cursor: pointer; }
 .gpt-panel .gpt-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 html[data-gpt-theme="dark"] .gpt-bar { --gpt-accent: #81c995; --gpt-outline: #8e918f; --gpt-hover: rgba(129,201,149,.12); }
-html[data-gpt-theme="dark"] .gpt-btn[data-k="androidpolice"] { background-color: #5f6368 !important; } /* near-black would vanish */
 html[data-gpt-theme="dark"] .gpt-bar.gpt-float { background: #2d2f31; }
 html[data-gpt-theme="dark"] .gpt-gear:active { background: rgba(129,201,149,.2); }
-html[data-gpt-theme="dark"] .gpt-panel { --gpt-bg: #2d2f31; --gpt-fg: #e3e3e3; --gpt-sub: #c4c7c5; --gpt-line: #444746; --gpt-accent: #81c995; }
+html[data-gpt-theme="dark"] .gpt-panel { --gpt-bg: #2d2f31; --gpt-fg: #e3e3e3; --gpt-sub: #c4c7c5; --gpt-line: #444746; --gpt-line2: #5f6368; --gpt-accent: #81c995; }
+html[data-gpt-theme="dark"] .gpt-panel .gpt-reset:hover, html[data-gpt-theme="dark"] .gpt-panel label.gpt-chip:hover { background: rgba(129,201,149,.12); }
 html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,149,.12); }
 `;
     document.head.append(style);
@@ -348,7 +390,6 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
                 a.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); copyInfo(a, bar); });
                 a.addEventListener("wheel", onCopyWheel, { passive: false });
                 a.addEventListener("contextmenu", e => { e.preventDefault(); e.stopPropagation(); toggleFormats(a); });
-                hoverClose(a);
             } else {
                 a.textContent = l.label;
                 a.title = l.name;
@@ -362,11 +403,10 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         const gear = document.createElement("button");
         gear.type = "button";
         gear.className = "gpt-gear";
-        gear.title = "Store Tweaks settings";
-        gear.setAttribute("aria-label", "Store Tweaks settings");
+        gear.title = "Play Store Tweaks settings";
+        gear.setAttribute("aria-label", "Play Store Tweaks settings");
         gear.append(gearIcon());
         gear.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); toggleSettings(gear); });
-        hoverClose(gear);
         bar.append(gear);
         return bar;
     }
@@ -398,8 +438,11 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         // The developer link only exists on the app's own page.
         const devEl = detailsPkg() ? [...document.querySelectorAll('a[href*="/store/apps/dev"]')].find(visible) : null;
         const dev = devEl ? devEl.textContent.trim() : "";
-        const fmt = curFormat();
-        const text = fmt.text({ pkg, title, dev, url: `https://play.google.com/store/apps/details?id=${enc(pkg)}` });
+        const info = { name: title, dev, pkg, url: `https://play.google.com/store/apps/details?id=${enc(pkg)}` };
+        // Ticked fields in order, skipping empty ones (no developer on search results).
+        let parts = fieldsOrdered().filter(fieldOn).map(f => ({ key: f.key, v: info[f.key] })).filter(p => p.v);
+        if (!parts.length) parts = [{ key: "pkg", v: pkg }];
+        const text = curFormat().text(parts, info);
         // Swap the copy icon for a tick (or a cross) for a moment; the size never changes.
         const done = ok => {
             const path = btn.querySelector("path");
@@ -498,17 +541,18 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
     // Two panels share one look: the settings (gear) and the copy-format menu (right-click
     // on Copy). Only one is open at a time.
     let closeTimer = 0;
-    function closeSettings() { clearTimeout(closeTimer); for (const p of document.querySelectorAll(".gpt-panel")) p.remove(); }
-    // Close as soon as the mouse is off both the panel and what opened it (with a short
-    // grace period so you can move from one to the other).
-    function hoverClose(el) {
-        el.addEventListener("mouseenter", () => clearTimeout(closeTimer));
-        el.addEventListener("mouseleave", () => {
-            if (!document.querySelector(".gpt-panel")) return;
-            clearTimeout(closeTimer);
-            closeTimer = setTimeout(() => { if (!dragging) closeSettings(); }, 250);
-        });
-    }
+    function closeSettings() { clearTimeout(closeTimer); closeTimer = 0; for (const p of document.querySelectorAll(".gpt-panel")) p.remove(); }
+    // Close once the mouse has been off both the panel and what opened it for a moment
+    // (so you can move from one to the other, or overshoot a little). Watches every pointer
+    // move rather than enter/leave events, which never fire for a panel rebuilt under a
+    // still cursor (as after Reset).
+    document.addEventListener("pointermove", e => {
+        const p = document.querySelector(".gpt-panel");
+        if (!p || e.pointerType === "touch") return;
+        const t = e.target;
+        if (p.contains(t) || (p._anchor && p._anchor.contains(t))) { clearTimeout(closeTimer); closeTimer = 0; }
+        else if (!closeTimer) closeTimer = setTimeout(() => { closeTimer = 0; if (!dragging) closeSettings(); }, 800);
+    }, true);
 
     // Reordering: drag a row by its handle (mouse, pen or touch), or focus the handle and
     // press the up/down arrow keys. The row you hold follows the pointer; the others slide
@@ -518,16 +562,81 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
     const keysOf = list => [...list.children].map(r => r.dataset.key);
     // Run `mutate` (which reorders the rows) and slide every row (except `skip`) from where
     // it was to where it ended up.
-    function flip(list, mutate, skip) {
+    function flip(list, mutate, skip, axis) {
+        const side = axis === "X" ? "left" : "top", T = "translate" + (axis || "Y");
         const before = new Map();
-        for (const r of list.children) if (r !== skip) before.set(r, r.getBoundingClientRect().top);
+        for (const r of list.children) if (r !== skip) before.set(r, r.getBoundingClientRect()[side]);
         mutate();
         if (reduceMotion()) return;
-        for (const [r, top] of before) {
+        for (const [r, at] of before) {
             if (r.getAnimations) for (const a of r.getAnimations()) a.cancel(); // read the real slot, not a half-finished slide
-            const d = top - r.getBoundingClientRect().top;
-            if (d && r.animate) r.animate([{ transform: `translateY(${d}px)` }, { transform: "translateY(0)" }], { duration: 200, easing: "cubic-bezier(.2,0,0,1)" });
+            const d = at - r.getBoundingClientRect()[side];
+            if (d && r.animate) r.animate([{ transform: `${T}(${d}px)` }, { transform: `${T}(0)` }], { duration: 200, easing: "cubic-bezier(.2,0,0,1)" });
         }
+    }
+    // Sideways version for the chips: the whole chip is the handle, so a press only becomes
+    // a drag once the pointer has moved a few pixels (otherwise it is a normal click/tick).
+    function dragChip(chip, wrap, commit) {
+        chip.addEventListener("pointerdown", e => {
+            if (e.button !== 0) return;
+            let on = false, grab = 0;
+            const follow = x => { chip.style.transform = `translateX(${x - wrap.getBoundingClientRect().left - grab - chip.offsetLeft}px) scale(1.04)`; };
+            const move = ev => {
+                if (ev.pointerId !== e.pointerId) return;
+                if (!on) {
+                    if (Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) < 5) return;
+                    on = dragging = true;
+                    grab = e.clientX - chip.getBoundingClientRect().left;
+                    chip.classList.add("gpt-dragging");
+                    const panel = chip.closest(".gpt-panel");
+                    if (panel) panel.classList.add("gpt-busy");
+                }
+                ev.preventDefault();
+                const centre = ev.clientX - wrap.getBoundingClientRect().left - grab + chip.offsetWidth / 2;
+                let next = null;
+                for (const c of wrap.children) { if (c !== chip && centre < c.offsetLeft + c.offsetWidth / 2) { next = c; break; } }
+                const inPlace = next ? chip.nextElementSibling === next : wrap.lastElementChild === chip;
+                if (!inPlace) flip(wrap, () => { if (next) wrap.insertBefore(chip, next); else wrap.append(chip); }, chip, "X");
+                follow(ev.clientX);
+            };
+            const end = ev => {
+                if (ev.pointerId !== e.pointerId) return;
+                window.removeEventListener("pointermove", move, true);
+                window.removeEventListener("pointerup", end, true);
+                window.removeEventListener("pointercancel", end, true);
+                if (!on) return; // just a click
+                const from = chip.getBoundingClientRect().left;
+                chip.style.transform = "";
+                chip.classList.remove("gpt-dragging");
+                const panel = chip.closest(".gpt-panel");
+                if (panel) panel.classList.remove("gpt-busy");
+                if (!reduceMotion() && chip.animate) {
+                    const d = from - chip.getBoundingClientRect().left;
+                    if (d) chip.animate([{ transform: `translateX(${d}px) scale(1.04)` }, { transform: "none" }], { duration: 160, easing: "cubic-bezier(.2,0,0,1)" });
+                }
+                dragging = false;
+                // The release would also count as a click on the chip and flip its tick: swallow it.
+                const swallow = c => { c.preventDefault(); c.stopPropagation(); };
+                window.addEventListener("click", swallow, { capture: true, once: true });
+                setTimeout(() => window.removeEventListener("click", swallow, true), 0);
+                if (wrap.isConnected) commit(keysOf(wrap));
+            };
+            window.addEventListener("pointermove", move, true);
+            window.addEventListener("pointerup", end, true);
+            window.addEventListener("pointercancel", end, true);
+        });
+        // Keyboard: with the chip's checkbox focused, left/right arrows move it.
+        chip.addEventListener("keydown", e => {
+            let go;
+            if (e.key === "ArrowLeft" && chip.previousElementSibling) go = () => wrap.insertBefore(chip, chip.previousElementSibling);
+            else if (e.key === "ArrowRight" && chip.nextElementSibling) go = () => chip.nextElementSibling.after(chip);
+            else return;
+            e.preventDefault();
+            const f = document.activeElement;
+            flip(wrap, go, null, "X");
+            if (f) f.focus();
+            commit(keysOf(wrap));
+        });
     }
     function dragRow(row, handle, list, commit) {
         handle.addEventListener("pointerdown", e => {
@@ -601,6 +710,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
     // Opens below `anchor` (or above if there is no room), right-aligned with it, or
     // left-aligned when `alignLeft`.
     function placePanel(panel, anchor, alignLeft) {
+        panel._anchor = anchor;
         const w = panel.offsetWidth, h = panel.offsetHeight;
         if (!anchor || !anchor.isConnected) { panel.style.right = "16px"; panel.style.bottom = "16px"; return; }
         const r = anchor.getBoundingClientRect();
@@ -610,26 +720,45 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         panel.style.left = left + "px";
         panel.style.top = top + "px";
     }
-    function newPanel(id, titleText, subText) {
+    const subhead = text => { const s = document.createElement("div"); s.className = "gpt-sub"; s.textContent = text; return s; };
+    // A panel with a title, a Reset button (which forgets `resetKeys` and calls `afterReset`),
+    // a subheading and an (empty) list of rows.
+    function newPanel(id, titleText, subText, resetKeys, afterReset) {
         const panel = document.createElement("div");
         panel.id = id;
         panel.className = "gpt-panel";
         const title = document.createElement("div");
         title.className = "gpt-title";
-        title.textContent = titleText;
-        const sub = document.createElement("div");
-        sub.className = "gpt-sub";
-        sub.textContent = subText;
+        const reset = document.createElement("button");
+        reset.type = "button";
+        reset.className = "gpt-reset";
+        reset.textContent = "Reset";
+        reset.title = "Back to the default settings for this menu";
+        reset.addEventListener("click", e => {
+            e.preventDefault();
+            enabled = Object.assign({}, enabled);
+            for (const k of resetKeys) delete enabled[k];
+            save(enabled);
+            afterReset();
+        });
+        title.append(titleText, reset);
         const list = document.createElement("div");
         list.className = "gpt-list";
-        panel.append(title, sub, list);
+        panel.append(title, subhead(subText), list);
         return { panel, list };
     }
 
     function toggleSettings(anchor) {
         if (document.getElementById("gpt-settings")) { closeSettings(); return; }
         closeSettings();
-        const { panel, list } = newPanel("gpt-settings", "Store Tweaks", "Show next to Install · drag ☰ to reorder");
+        const resetKeys = ["order", "unwrap", ...LINKS.map(l => l.key)];
+        const { panel, list } = newPanel("gpt-settings", "Play Store Tweaks", "Show next to Install · drag ☰ to reorder", resetKeys, () => {
+            // The bars are rebuilt, so reopen on the new gear of the same app.
+            const pkg = anchor && anchor.closest(".gpt-bar") ? anchor.closest(".gpt-bar").dataset.key.split("|")[0] : "";
+            rev++; update(); closeSettings();
+            const bar = [...document.querySelectorAll(".gpt-bar")].find(b => b.dataset.key.split("|")[0] === pkg);
+            toggleSettings(bar ? bar.querySelector(".gpt-gear") : document.querySelector(".gpt-gear"));
+        });
         const commit = keys => {
             if (JSON.stringify(keys) === JSON.stringify(ordered().map(l => l.key))) return;
             enabled = Object.assign({}, enabled, { order: keys });
@@ -651,9 +780,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
             row.append(label, makeHandle(row, list, l.name, commit));
             list.append(row);
         }
-        const sub2 = document.createElement("div");
-        sub2.className = "gpt-sub";
-        sub2.textContent = "Links";
+        const sub2 = subhead("Links");
         const uLabel = document.createElement("label");
         const uBox = document.createElement("input");
         uBox.type = "checkbox";
@@ -664,17 +791,42 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         tip.className = "gpt-sub gpt-hint";
         tip.textContent = "Tip: right-click Copy to choose what it copies.";
         panel.append(sub2, uLabel, tip);
-        hoverClose(panel);
         document.body.append(panel);
         placePanel(panel, anchor);
     }
 
-    // Right-click on Copy: pick the format (click a name), choose which formats Shift + scroll
-    // cycles through (tick), and put them in the order you like (drag).
+    // Right-click on Copy: what to copy (tick and drag the field chips), then the format:
+    // pick it (click a name), choose which formats Shift + scroll cycles through (tick), and
+    // put them in the order you like (drag).
     function toggleFormats(anchor) {
         if (document.getElementById("gpt-formats")) { closeSettings(); return; }
         closeSettings();
-        const { panel, list } = newPanel("gpt-formats", "Copy as", "Click one to use it · tick to include it in Shift + scroll · drag ☰ to reorder");
+        const { panel, list } = newPanel("gpt-formats", "Copy", "Format · click to use · tick for Shift + scroll",
+            ["copyFormat", "fmtOrder", "fmtOff", "fieldOrder", "fieldOff"], () => { refreshFormats(); closeSettings(); toggleFormats(anchor); });
+        // What to copy: one line of chips above the formats.
+        const chips = document.createElement("div");
+        chips.className = "gpt-chips";
+        for (const f of fieldsOrdered()) {
+            const chip = document.createElement("label");
+            chip.className = "gpt-chip";
+            chip.dataset.key = f.key;
+            chip.title = "Tick to copy it · drag to reorder";
+            const box = document.createElement("input");
+            box.type = "checkbox";
+            box.checked = fieldOn(f);
+            chip.classList.toggle("gpt-on", box.checked);
+            box.addEventListener("change", () => {
+                const off = new Set(Array.isArray(enabled.fieldOff) ? enabled.fieldOff : []);
+                if (box.checked) off.delete(f.key); else off.add(f.key);
+                if (FIELDS.every(x => off.has(x.key))) box.checked = true; // keep at least one
+                else setOpts({ fieldOff: [...off] });
+                chip.classList.toggle("gpt-on", box.checked);
+            });
+            chip.append(box, f.name);
+            dragChip(chip, chips, keys => setOpts({ fieldOrder: keys }));
+            chips.append(chip);
+        }
+        list.previousElementSibling.before(subhead("Include · drag to reorder"), chips); // above the "Format" heading
         const commit = keys => {
             if (JSON.stringify(keys) === JSON.stringify(fmtOrdered().map(f => f.key))) return;
             enabled = Object.assign({}, enabled, { fmtOrder: keys });
@@ -717,7 +869,6 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
             row.append(box, pick, makeHandle(row, list, f.name, commit));
             list.append(row);
         }
-        hoverClose(panel);
         document.body.append(panel);
         refreshFormats();
         placePanel(panel, anchor, true);
@@ -728,7 +879,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
     }, true);
     window.addEventListener("scroll", closeSettings, { passive: true });
     if (typeof GM_registerMenuCommand === "function") {
-        GM_registerMenuCommand("Store Tweaks settings", () => toggleSettings(document.querySelector(".gpt-gear")));
+        GM_registerMenuCommand("Play Store Tweaks settings", () => toggleSettings(document.querySelector(".gpt-gear")));
     }
 
     // ---- Main loop -------------------------------------------------------------------
@@ -737,7 +888,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
     let timer = 0;
     function schedule(delay) {
         if (timer) return;
-        timer = setTimeout(() => { timer = 0; try { update(); } catch (err) { console.error("[Google Play Store Tweaks]", err); } }, delay || 100);
+        timer = setTimeout(() => { timer = 0; try { update(); } catch (err) { console.error("[Play Store Tweaks]", err); } }, delay || 100);
     }
     new MutationObserver(() => schedule()).observe(document.documentElement, { childList: true, subtree: true });
     window.addEventListener("popstate", () => schedule());
