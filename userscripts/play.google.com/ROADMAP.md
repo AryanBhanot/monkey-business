@@ -8,10 +8,6 @@ caching or heavy page parsing goes in the extension version instead.
 Remaining work, roughly in the order it is wanted. Once these are done the script is finished
 and only gets bug fixes.
 
-- **Language / region picker.** A small button that reopens the current app page in another
-  language or country (`hl=` / `gl=`), for checking regional availability and prices or getting an
-  English page on a foreign store. Needs a dropdown of common languages and countries and a way
-  to remember favourites.
 - **Horizontal scrollbar on screenshot galleries.**
 - **More mirror buttons, as plain links.** APKPure, APKCombo, Aptoide, APK-DL and similar. Each
   just opens the site's search or app page (no link extraction, no captcha handling), as one more
