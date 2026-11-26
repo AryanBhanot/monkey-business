@@ -5,7 +5,7 @@
 // @author      AryanBhanot
 // @icon        https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/icons/play-store-tweaks.png?v=0.10.0
 // @match       https://play.google.com/store/*
-// @version     0.17.0
+// @version     0.18.0
 // @license     MIT
 // @homepageURL https://github.com/AryanBhanot/monkey-business
 // @supportURL  https://github.com/AryanBhanot/monkey-business/issues
@@ -38,7 +38,7 @@
         { key: "apkmirror", label: "APKM", name: "APKMirror", color: "#ff8b14", same: true, url: c => `https://www.apkmirror.com/?post_type=app_release&searchtype=apk&s=${enc(c.pkg)}` },
         { key: "androidpolice", label: "AP", name: "Android Police", color: "#e01a4f", same: true, url: c => `https://www.androidpolice.com/?s=${enc(c.title)}` }, // their logo red
         { key: "appbrain", label: "AB", name: "AppBrain", color: "#3f51b5", same: true, url: c => `https://www.appbrain.com/app/${enc(c.pkg)}` },
-        { key: "exodus", label: "Exodus", name: "Exodus Privacy report", color: "#1565c0", url: c => `https://reports.exodus-privacy.eu.org/en/search/${enc(c.pkg)}/` },
+        { key: "exodus", label: "Exodus", name: "Exodus Privacy report", color: "#1565c0", same: true, url: c => `https://reports.exodus-privacy.eu.org/en/search/${enc(c.pkg)}/` },
     ];
     // Default layout: one row with the main buttons (Share and Wishlist stay Google's), a line
     // break, then the lookup sites.
@@ -107,8 +107,79 @@
         }
         return null;
     }
-    // Names used before: 0.8 renamed these; 0.10 replaced "link only" / "package only" with the field filter.
-    const OLD_FORMATS = { markdown: "md", bbcode: "bb", plain: "txt", url: "txt", id: "txt" };
+    // Wheel steps: -1, 0 or 1 for a wheel event. Input is summed until it reaches `notch`
+    // pixels, then one step, then `cooldown` ms in which input is ignored. The buttons take a
+    // step per event (notch 1); the menu wheels want a whole notch, so they move slower.
+    const wheelState = (cooldown, notch) => ({ cooldown, notch, step: 0, evt: 0, acc: 0 });
+    const buttonWheel = wheelState(120, 1);
+    function wheelDir(e, st = buttonWheel, now = Date.now()) {
+        const d = e.deltaY || e.deltaX; // some browsers turn Shift + wheel into a sideways scroll
+        if (!d) return 0;
+        if (now - st.evt > 300) st.acc = 0; // a pause forgets a half notch
+        st.evt = now;
+        if (now - st.step < st.cooldown) return 0;
+        st.acc += e.deltaMode === 1 ? d * 40 : d; // lines -> pixels
+        if (Math.abs(st.acc) < st.notch) return 0;
+        const dir = st.acc > 0 ? 1 : -1;
+        st.acc = 0; st.step = now;
+        return dir;
+    }
+
+    // `all` (items with a `key`) in the `saved` order of keys. Keys not in `all` go through
+    // `extra` (line breaks); items never ordered go last in default order, except ones marked
+    // `first` (Install, which was always first).
+    function inOrder(all, saved, extra) {
+        const out = [], seen = new Set();
+        for (const k of saved) {
+            if (seen.has(k)) continue;
+            const x = all.find(y => y.key === k) || (extra ? extra(k) : null);
+            if (x) { out.push(x); seen.add(k); }
+        }
+        for (const x of all) if (!seen.has(x.key)) { if (x.first) out.unshift(x); else out.push(x); }
+        return out;
+    }
+
+    // ---- Languages and countries ------------------------------------------------
+    const LANGS = ["en", "es", "fr", "de", "pt-BR", "it", "ru", "ja", "ko", "zh-CN", "zh-TW", "ar", "hi", "tr", "id", "nl", "pl"];
+    const REGIONS = ["US", "GB", "CA", "AU", "IN", "DE", "FR", "ES", "IT", "BR", "MX", "JP", "KR", "RU", "TR", "ID", "NL", "PL"];
+    const same = (a, b) => a.replace("_", "-").toLowerCase() === b.replace("_", "-").toLowerCase();
+    function displayName(type, code) {
+        if (!code) return "Default";
+        try { return new Intl.DisplayNames(["en"], { type }).of(code) || code; } catch (_) { return code; }
+    }
+    // Every language / country the browser can name, for the search fields: the common ones
+    // first, then the rest by name. Built once, the first time a search needs it.
+    const allCodes = {};
+    function everything(kind) {
+        if (allCodes[kind]) return allCodes[kind];
+        const out = (kind === "hl" ? LANGS : REGIONS).slice(), extra = [];
+        try {
+            const dn = new Intl.DisplayNames(["en"], { type: kind === "hl" ? "language" : "region", fallback: "none" });
+            const az = "abcdefghijklmnopqrstuvwxyz";
+            for (const x of az) for (const y of az) {
+                const c = kind === "hl" ? x + y : (x + y).toUpperCase();
+                if (kind === "gl" && /^(EU|EZ|UN|ZZ|Q[M-Z]|X[A-Z])$/.test(c)) continue; // groups and test codes, not countries
+                const n = dn.of(c);
+                if (n && n !== c && !out.some(o => same(o, c))) extra.push({ c, n });
+            }
+        } catch (_) { /* old browser: the common ones only */ }
+        extra.sort((a, b) => a.n.localeCompare(b.n));
+        return (allCodes[kind] = out.concat(extra.map(x => x.c)));
+    }
+    // Best match for what was typed: the code itself, then a name that starts with it, then one
+    // that contains it (common ones win ties).
+    function findCode(kind, type, q) {
+        q = q.trim().toLowerCase();
+        if (!q) return null;
+        const all = everything(kind), name = c => displayName(type, c).toLowerCase();
+        return all.find(c => c.toLowerCase() === q) || all.find(c => name(c).startsWith(q)) || all.find(c => name(c).includes(q)) || null;
+    }
+
+    // Loaded by the tests in Node (dev/test.js): hand over the parts above, which need no page.
+    if (typeof document === "undefined" && typeof module === "object") {
+        module.exports = { FORMATS, inline, forumPost, wheelState, wheelDir, inOrder, findCode, everything, LINKS, DEFAULT_ORDER };
+        return;
+    }
 
     // ---- Settings: which buttons are shown ---------------------------------
     // Stored by the userscript manager (falls back to localStorage).
@@ -121,64 +192,43 @@
     function save(v) {
         try { if (typeof GM_setValue === "function") GM_setValue(KEY, v); else localStorage.setItem(KEY, JSON.stringify(v)); } catch (_) { /* not saved */ }
     }
+    // Saved settings:
+    //   on: { [button key]: false } for hidden buttons (everything is on by default)
+    //   order: button keys and line breaks · unwrap, gallery: page options (true by default)
+    //   copyFormat · fmtOrder, fmtOff: copy formats · fieldOrder, fieldOff: what Copy includes
     let enabled = load();
-    // Until 0.10 Copy came before Beta by default. If that old default was never changed,
-    // forget it so the new default applies.
-    if (Array.isArray(enabled.order) && enabled.order.join() === "copy,beta,apkmirror,androidpolice,appbrain,exodus") {
-        enabled = Object.assign({}, enabled);
-        delete enabled.order;
-        save(enabled);
-    }
-    // 0.13 had a single "br" entry with an on/off tick; it becomes a real line break (or goes).
-    if (Array.isArray(enabled.order) && enabled.order.includes("br")) {
-        const on = enabled.br === true;
-        enabled = Object.assign({}, enabled, { order: enabled.order.flatMap(k => (k === "br" ? (on ? ["br1"] : []) : [k])) });
-        delete enabled.br;
+    // Until 0.18 the button switches sat next to the options (enabled.beta = false): move them.
+    if (!enabled.on || typeof enabled.on !== "object") {
+        const next = Object.assign({}, enabled, { on: {} });
+        for (const l of LINKS) if (typeof next[l.key] === "boolean") { next.on[l.key] = next[l.key]; delete next[l.key]; }
+        enabled = next;
         save(enabled);
     }
     const setOpts = o => { enabled = Object.assign({}, enabled, o); save(enabled); };
-    const isOn = l => l.fixed || enabled[l.key] !== false; // everything is on by default
+    const isOn = l => l.fixed || (enabled.on || {})[l.key] !== false;
+    const setOn = (key, v) => setOpts({ on: Object.assign({}, enabled.on, { [key]: v }) });
     let rev = 0; // bumped on every settings change so the bars are rebuilt
-    // `all` in the order saved under `orderKey` (anything never ordered goes last, in default order).
-    function sortBy(all, orderKey) {
-        const saved = Array.isArray(enabled[orderKey]) ? enabled[orderKey] : [];
-        // Never-ordered items go last in default order, except ones marked `first` (Install, which was always first).
-        const pos = x => { const i = saved.indexOf(x.key); return i >= 0 ? i : x.first ? -1 : 1000 + all.indexOf(x); };
-        return all.slice().sort((a, b) => pos(a) - pos(b));
-    }
-    const offIn = offKey => x => !(Array.isArray(enabled[offKey]) && enabled[offKey].includes(x.key));
-    // Buttons and line breaks in the saved order. Anything never ordered goes last in default
-    // order, except Install (`first`), which was always first.
-    function ordered() {
-        const saved = Array.isArray(enabled.order) ? enabled.order : DEFAULT_ORDER;
-        const out = [], seen = new Set();
-        for (const k of saved) {
-            if (seen.has(k)) continue;
-            const l = isBreakKey(k) ? breakItem(k) : LINKS.find(x => x.key === k);
-            if (l) { out.push(l); seen.add(k); }
-        }
-        for (const l of LINKS) if (!seen.has(l.key)) { if (l.first) out.unshift(l); else out.push(l); }
-        return out;
-    }
-    const setOrder = keys => { enabled = Object.assign({}, enabled, { order: keys }); save(enabled); rev++; update(); };
+    const savedList = (k, d = []) => (Array.isArray(enabled[k]) ? enabled[k] : d);
+    const offIn = offKey => x => !savedList(offKey).includes(x.key);
+    // Buttons and line breaks in the saved order.
+    const ordered = () => inOrder(LINKS, savedList("order", DEFAULT_ORDER), k => (isBreakKey(k) ? breakItem(k) : null));
+    const setOrder = keys => { setOpts({ order: keys }); rev++; update(); };
     // Formats in the user's order, and the ones left ticked (the ones scrolling over Copy cycles through).
-    const fmtOrdered = () => sortBy(FORMATS, "fmtOrder");
+    const fmtOrdered = () => inOrder(FORMATS, savedList("fmtOrder"));
     const fmtOn = offIn("fmtOff");
     function fmtActive() {
         const on = fmtOrdered().filter(fmtOn);
         return on.length ? on : fmtOrdered(); // never end up with nothing to copy
     }
     // Fields (name, developer, ...) in the user's order, and whether each is copied.
-    const fieldsOrdered = () => sortBy(FIELDS, "fieldOrder");
+    const fieldsOrdered = () => inOrder(FIELDS, savedList("fieldOrder"));
     const fieldOn = offIn("fieldOff");
     function curFormat() {
-        const k = OLD_FORMATS[enabled.copyFormat] || enabled.copyFormat;
         const act = fmtActive();
-        return act.find(f => f.key === k) || act[0];
+        return act.find(f => f.key === enabled.copyFormat) || act[0];
     }
     function setFormat(k) {
-        enabled = Object.assign({}, enabled, { copyFormat: k });
-        save(enabled);
+        setOpts({ copyFormat: k });
         refreshFormats();
     }
     function refreshFormats() {
@@ -382,7 +432,8 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
     function installTargets() {
         const out = [], want = detailsPkg();
         if (!want && !onSearch()) return out;
-        for (const el of document.querySelectorAll("[data-item-id]")) {
+        // On an app's page, only its own containers (not the dozens of similar apps).
+        for (const el of document.querySelectorAll(want ? `[data-item-id*='"${want}"']` : "[data-item-id]")) {
             const pkg = pkgOf(el);
             if (!pkg || (want && pkg !== want) || !visible(el)) continue;
             const btn = [...el.querySelectorAll("button")].find(b => visible(b) && isFilled(b));
@@ -404,14 +455,22 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         return out;
     }
 
+    // Links to exactly this app (details?id=com.foo also matches com.foo.bar in a selector).
+    const linksTo = (root, pkg) => [...root.querySelectorAll(`a[href*="details?id=${pkg}"]`)]
+        .filter(a => { try { return new URL(a.href).searchParams.get("id") === pkg; } catch (_) { return false; } });
     // Title of the app a target belongs to.
     function titleFor(t) {
         if (detailsPkg()) { const h = titleEl(); if (h) return h.textContent.trim(); }
-        // Search results have no heading: the app name is the first text in the result card.
-        let card = t.el;
-        for (let i = 0; i < 10 && card.parentElement; i++) {
+        // Search results have no heading: climb to the result card (the nearest box holding a
+        // link to this app) and use that link's name, else the card's first text.
+        let card = t.el, links = [];
+        for (let i = 0; i < 10 && card.parentElement && !links.length; i++) {
             card = card.parentElement;
-            if (card.querySelector(`a[href*="details?id=${t.pkg}"]`)) break;
+            links = linksTo(card, t.pkg);
+        }
+        for (const a of links) {
+            const n = (a.getAttribute("aria-label") || a.innerText.split("\n")[0] || "").trim();
+            if (n) return n;
         }
         for (const e of card.querySelectorAll("*")) {
             if (e.children.length || e.closest("button, .gpt-bar") || !visible(e)) continue;
@@ -484,6 +543,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         const bar = document.createElement("div");
         bar.className = "gpt-bar";
         bar.dataset.key = key;
+        bar._born = Date.now();
         // Copy Google's own button metrics so ours match.
         const cs = getComputedStyle(t.btn), h = t.btn.getBoundingClientRect().height;
         if (h >= 24 && h <= 72) bar.style.setProperty("--gpt-h", Math.round(h) + "px");
@@ -562,13 +622,21 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
             el.classList.toggle("gpt-item", r.width > 0 && r.height > 0);
         }
         // Don't run under the big app icon that sits to the right of the header on wide pages.
+        // Measuring every image is slow, so it is only redone when the row moves or the window
+        // is resized (and, while no icon is found, for the first few seconds as images load).
         const rr = row.getBoundingClientRect(), right = row.parentElement.getBoundingClientRect().right; // the parent: our own max-width must not change the test
-        let limit = 0;
-        for (const img of document.querySelectorAll('img[src*="play-lh.googleusercontent.com"]')) {
-            if (row.contains(img) || !visible(img)) continue;
-            const b = img.getBoundingClientRect();
-            if (b.width >= 96 && b.left > rr.left + 120 && b.left < right &&b.top < rr.bottom + 40 && b.bottom > rr.top - 40) limit = limit ? Math.min(limit, b.left) : b.left;
+        const where = [Math.round(rr.left), Math.round(rr.top + scrollY), Math.round(right), innerWidth].join();
+        if (bar._where !== where || (!bar._limit && Date.now() - bar._born < 5000)) {
+            bar._where = where;
+            let limit = 0;
+            for (const img of document.querySelectorAll('img[src*="play-lh.googleusercontent.com"]')) {
+                if (row.contains(img) || !visible(img)) continue;
+                const b = img.getBoundingClientRect();
+                if (b.width >= 96 && b.left > rr.left + 120 && b.left < right && b.top < rr.bottom + 40 && b.bottom > rr.top - 40) limit = limit ? Math.min(limit, b.left) : b.left;
+            }
+            bar._limit = limit;
         }
+        const limit = bar._limit;
         // APKM, AP and AB share one width: the widest of them. Measured once per bar (the
         // labels never change), as soon as they are laid out.
         if (!bar._sameDone) {
@@ -607,11 +675,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
                 a.title = "Language & country\nScroll: country · Shift + scroll: language\nClick or right-click: menu (pick Default to reset)";
                 a.setAttribute("aria-label", "Language and country");
                 labelLang(a);
-                a.addEventListener("click", e => {
-                    e.preventDefault(); e.stopPropagation();
-                    if (a._wasOpen) a._wasOpen = false; else menuOnce(a, toggleLang);
-                });
-                a.addEventListener("pointerdown", () => { a._wasOpen = !!document.getElementById("gpt-lang"); }, true);
+                a.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); if (!justOpened(a)) toggleLang(a); });
                 a.addEventListener("wheel", onLangWheel, { passive: false });
                 a.addEventListener("keydown", e => { // arrow keys step like the wheel
                     if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
@@ -666,24 +730,6 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         btn.querySelector(".gpt-fmt").textContent = f.key;
         btn.title = `Copy app info as ${f.name}\nScroll or right-click to change format`;
         btn.setAttribute("aria-label", `Copy app info as ${f.name}`);
-    }
-    // Wheel steps: -1, 0 or 1 for a wheel event. Input is summed until it reaches `notch`
-    // pixels, then one step, then `cooldown` ms in which input is ignored. The buttons take a
-    // step per event (notch 1); the menu wheels want a whole notch, so they move slower.
-    const wheelState = (cooldown, notch) => ({ cooldown, notch, step: 0, evt: 0, acc: 0 });
-    const buttonWheel = wheelState(120, 1);
-    function wheelDir(e, st = buttonWheel) {
-        const d = e.deltaY || e.deltaX; // some browsers turn Shift + wheel into a sideways scroll
-        const now = Date.now();
-        if (!d) return 0;
-        if (now - st.evt > 300) st.acc = 0; // a pause forgets a half notch
-        st.evt = now;
-        if (now - st.step < st.cooldown) return 0;
-        st.acc += e.deltaMode === 1 ? d * 40 : d; // lines -> pixels
-        if (Math.abs(st.acc) < st.notch) return 0;
-        const dir = st.acc > 0 ? 1 : -1;
-        st.acc = 0; st.step = now;
-        return dir;
     }
     // Mouse wheel over Copy cycles through the formats.
     function onCopyWheel(e) {
@@ -749,7 +795,8 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         const on = enabled.gallery === false ? "off" : "on";
         if (document.documentElement.dataset.gptGallery !== on) document.documentElement.dataset.gptGallery = on;
         if (on === "off") return;
-        for (const img of document.querySelectorAll('img[role="button"][src*="play-lh.googleusercontent.com"]')) {
+        for (const img of document.querySelectorAll('img[role="button"][src*="play-lh.googleusercontent.com"]:not([data-gpt-seen])')) {
+            img.setAttribute("data-gpt-seen", "");
             const list = img.closest('[role="list"]');
             if (list && !list.hasAttribute("data-gpt-scrollbar")) list.setAttribute("data-gpt-scrollbar", "");
         }
@@ -813,19 +860,31 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
     // ---- Settings panels ---------------------------------------------------------------
     // Two panels share one look: the settings (gear) and the copy-format menu (right-click
     // on Copy). Only one is open at a time.
-    let closeTimer = 0;
-    function closeSettings() { clearTimeout(closeTimer); closeTimer = 0; for (const p of document.querySelectorAll(".gpt-panel")) p.remove(); }
+    let closeTimer = 0, openPanel = null;
+    function closeSettings() {
+        clearTimeout(closeTimer); closeTimer = 0;
+        if (openPanel) document.removeEventListener("pointermove", onHover, true);
+        openPanel = null;
+        for (const p of document.querySelectorAll(".gpt-panel")) p.remove();
+    }
     // Close once the mouse has been off both the panel and what opened it for a moment
-    // (so you can move from one to the other, or overshoot a little). Watches every pointer
-    // move rather than enter/leave events, which never fire for a panel rebuilt under a
-    // still cursor (as after Reset).
-    document.addEventListener("pointermove", e => {
-        const p = document.querySelector(".gpt-panel");
-        if (!p || e.pointerType === "touch") return;
-        const t = e.target;
-        if (p.contains(t) || (p._anchor && p._anchor.contains(t))) { clearTimeout(closeTimer); closeTimer = 0; }
+    // (so you can move from one to the other, or overshoot a little). Watches pointer moves
+    // (only while a panel is open) rather than enter/leave events, which never fire for a
+    // panel rebuilt under a still cursor (as after Reset).
+    const inPanel = t => !!openPanel && (openPanel.contains(t) || (!!openPanel._anchor && openPanel._anchor.contains(t)));
+    function onHover(e) {
+        if (e.pointerType === "touch") return;
+        if (inPanel(e.target)) { clearTimeout(closeTimer); closeTimer = 0; }
         else if (!closeTimer) closeTimer = setTimeout(() => { closeTimer = 0; if (!dragging) closeSettings(); }, 800);
-    }, true);
+    }
+    // Show `panel` next to `anchor` (see placePanel) as the one open panel.
+    function showPanel(panel, anchor, alignLeft) {
+        document.body.append(panel);
+        panel._alignLeft = alignLeft;
+        placePanel(panel, anchor, alignLeft);
+        openPanel = panel;
+        document.addEventListener("pointermove", onHover, true);
+    }
 
     // Reordering: drag a row by its handle (mouse, pen or touch), or focus the handle and
     // press the up/down arrow keys. The row you hold follows the pointer; the others slide
@@ -986,7 +1045,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
     function toggleSettings(anchor) {
         if (document.getElementById("gpt-settings")) { closeSettings(); return; }
         closeSettings();
-        const resetKeys = ["order", "unwrap", "gallery", ...LINKS.map(l => l.key)];
+        const resetKeys = ["order", "unwrap", "gallery", "on"];
         const { panel, list } = newPanel("gpt-settings", "Play Store Tweaks", "Drag to arrange · untick to hide", resetKeys, () => {
             // The bars are rebuilt, so reopen on the new gear of the same app.
             const pkg = anchor && anchor.closest(".gpt-bar") ? anchor.closest(".gpt-bar").dataset.key.split("|")[0] : "";
@@ -1022,7 +1081,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
             box.checked = isOn(l);
             box.disabled = !!l.fixed;
             if (l.fixed) label.title = "Google's Install button can be moved but not hidden";
-            box.addEventListener("change", () => { setOpts({ [l.key]: box.checked }); rev++; update(); });
+            box.addEventListener("change", () => { setOn(l.key, box.checked); rev++; update(); });
             const dot = document.createElement("span");
             dot.className = "gpt-dot";
             dot.style.background = l.color;
@@ -1063,8 +1122,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         tip.className = "gpt-sub gpt-hint";
         tip.textContent = "Tip: right-click (or hold) Copy for what and how to copy; click the globe to pick a language.";
         panel.append(sub2, uLabel, gLabel, tip);
-        document.body.append(panel);
-        placePanel(panel, anchor);
+        showPanel(panel, anchor);
     }
 
     // Right-click on Copy: what to copy (tick and drag the field chips), then the format:
@@ -1088,7 +1146,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
             box.checked = fieldOn(f);
             chip.classList.toggle("gpt-on", box.checked);
             box.addEventListener("change", () => {
-                const off = new Set(Array.isArray(enabled.fieldOff) ? enabled.fieldOff : []);
+                const off = new Set(savedList("fieldOff"));
                 if (box.checked) off.delete(f.key); else off.add(f.key);
                 if (FIELDS.every(x => off.has(x.key))) box.checked = true; // keep at least one
                 else setOpts({ fieldOff: [...off] });
@@ -1099,11 +1157,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
             chips.append(chip);
         }
         list.previousElementSibling.before(subhead("Include · drag to reorder"), chips); // above the "Format" heading
-        const commit = keys => {
-            if (JSON.stringify(keys) === JSON.stringify(fmtOrdered().map(f => f.key))) return;
-            enabled = Object.assign({}, enabled, { fmtOrder: keys });
-            save(enabled);
-        };
+        const commit = keys => { if (JSON.stringify(keys) !== JSON.stringify(fmtOrdered().map(f => f.key))) setOpts({ fmtOrder: keys }); };
         for (const f of fmtOrdered()) {
             const row = document.createElement("div");
             row.className = "gpt-row";
@@ -1115,11 +1169,10 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
             box.title = "Include in scroll cycling";
             box.setAttribute("aria-label", `Include ${f.name} in scroll cycling`);
             box.addEventListener("change", () => {
-                const off = new Set(Array.isArray(enabled.fmtOff) ? enabled.fmtOff : []);
+                const off = new Set(savedList("fmtOff"));
                 if (box.checked) off.delete(f.key); else off.add(f.key);
                 if (FORMATS.every(x => off.has(x.key))) { box.checked = true; return; } // keep at least one
-                enabled = Object.assign({}, enabled, { fmtOff: [...off] });
-                save(enabled);
+                setOpts({ fmtOff: [...off] });
                 refreshFormats();
             });
             const pick = document.createElement("span");
@@ -1141,57 +1194,22 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
             row.append(box, pick, makeHandle(row, list, f.name, commit));
             list.append(row);
         }
-        document.body.append(panel);
+        showPanel(panel, anchor, true);
         refreshFormats();
-        placePanel(panel, anchor, true);
     }
     // Language & region: reopen this same page with another hl= (language) or gl= (country).
     // Scroll over the globe button (or use the arrow keys on it) to cycle countries, with
     // Shift for languages; click it for two small wheels with search fields.
-    const LANGS = ["en", "es", "fr", "de", "pt-BR", "it", "ru", "ja", "ko", "zh-CN", "zh-TW", "ar", "hi", "tr", "id", "nl", "pl"];
-    const REGIONS = ["US", "GB", "CA", "AU", "IN", "DE", "FR", "ES", "IT", "BR", "MX", "JP", "KR", "RU", "TR", "ID", "NL", "PL"];
-    const same = (a, b) => a.replace("_", "-").toLowerCase() === b.replace("_", "-").toLowerCase();
     // What the address says (the page's own default when it says nothing).
     function pageLocale() {
         const q = new URLSearchParams(location.search);
         return { hl: q.get("hl") || "", gl: q.get("gl") || "" };
-    }
-    function displayName(type, code) {
-        if (!code) return "Default";
-        try { return new Intl.DisplayNames(["en"], { type }).of(code) || code; } catch (_) { return code; }
     }
     // The values for hl / gl: "" (no override) first, then the common ones, then the current one if it is none of them.
     function choices(kind) {
         const codes = [""], cur = pageLocale()[kind];
         for (const c of [...(kind === "hl" ? LANGS : REGIONS), cur]) if (c && !codes.some(x => same(x, c))) codes.push(c);
         return codes;
-    }
-    // Every language / country the browser can name, for the search fields: the common ones
-    // first, then the rest by name. Built once, the first time a search needs it.
-    const allCodes = {};
-    function everything(kind) {
-        if (allCodes[kind]) return allCodes[kind];
-        const out = (kind === "hl" ? LANGS : REGIONS).slice(), extra = [];
-        try {
-            const dn = new Intl.DisplayNames(["en"], { type: kind === "hl" ? "language" : "region", fallback: "none" });
-            const az = "abcdefghijklmnopqrstuvwxyz";
-            for (const x of az) for (const y of az) {
-                const c = kind === "hl" ? x + y : (x + y).toUpperCase();
-                if (kind === "gl" && /^(EU|EZ|UN|ZZ|Q[M-Z]|X[A-Z])$/.test(c)) continue; // groups and test codes, not countries
-                const n = dn.of(c);
-                if (n && n !== c && !out.some(o => same(o, c))) extra.push({ c, n });
-            }
-        } catch (_) { /* old browser: the common ones only */ }
-        extra.sort((a, b) => a.n.localeCompare(b.n));
-        return (allCodes[kind] = out.concat(extra.map(x => x.c)));
-    }
-    // Best match for what was typed: the code itself, then a name that starts with it, then one
-    // that contains it (common ones win ties).
-    function findCode(kind, type, q) {
-        q = q.trim().toLowerCase();
-        if (!q) return null;
-        const all = everything(kind), name = c => displayName(type, c).toLowerCase();
-        return all.find(c => c.toLowerCase() === q) || all.find(c => name(c).startsWith(q)) || all.find(c => name(c).includes(q)) || null;
     }
     // Reload with these parameters set ("" removes one).
     function go(values) {
@@ -1241,6 +1259,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
             find.placeholder = title + "…";
             find.setAttribute("aria-label", "Find a " + title.toLowerCase());
             find.spellcheck = false;
+            find.autocomplete = "off";
             col.append(find);
             const codes = choices(kind);
             let idx = Math.max(0, codes.findIndex(c => same(c, now[kind])));
@@ -1254,6 +1273,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
             const addItem = c => {
                 const i = items.length, it = document.createElement("div");
                 it.className = "gpt-wi";
+                it.id = `gpt-${kind}-${i}`;
                 it.setAttribute("role", "option");
                 it.textContent = displayName(type, c);
                 it.addEventListener("click", () => set(i));
@@ -1266,6 +1286,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
                 idx = (i + codes.length) % codes.length;
                 inner.style.transform = `translateY(${(2 - idx) * 26}px)`;
                 items.forEach((it, n) => { it.classList.toggle("gpt-sel", n === idx); it.setAttribute("aria-selected", n === idx); });
+                w.setAttribute("aria-activedescendant", items[idx].id); // screen readers read the chosen one
             };
             const ws = wheelState(180, 100);
             w.addEventListener("wheel", e => {
@@ -1303,14 +1324,23 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         ok.textContent = "Apply";
         ok.addEventListener("click", apply);
         panel.append(ok);
-        document.body.append(panel);
-        placePanel(panel, anchor, true);
+        showPanel(panel, anchor, true);
     }
     document.addEventListener("keydown", e => { if (e.key === "Escape") closeSettings(); }, true);
-    document.addEventListener("click", e => {
-        if (!e.target.closest || !e.target.closest(".gpt-panel, .gpt-gear")) closeSettings();
-    }, true);
-    window.addEventListener("scroll", closeSettings, { passive: true });
+    // A click elsewhere closes the menu. Clicks on what opened it are left to that button
+    // (a second click on the globe or gear closes it, a click on Copy copies).
+    document.addEventListener("click", e => { if (openPanel && !inPanel(e.target)) closeSettings(); }, true);
+    // When the page scrolls the menu stays with its button, and closes once that is off screen.
+    // (On phones, focusing a search field scrolls the page to make room for the keyboard.)
+    function followAnchor() {
+        const p = openPanel, a = p && p._anchor;
+        if (!a || !p.isConnected) return;
+        if (!a.isConnected) { closeSettings(); return; }
+        const r = a.getBoundingClientRect(), H = window.visualViewport ? visualViewport.height : innerHeight;
+        if (r.bottom < 0 || r.top > H) closeSettings(); else placePanel(p, a, p._alignLeft);
+    }
+    window.addEventListener("scroll", followAnchor, { passive: true });
+    if (window.visualViewport) visualViewport.addEventListener("resize", followAnchor);
     if (typeof GM_registerMenuCommand === "function") {
         // These open next to the buttons on the page (or in the corner if there are none).
         const open = (fn, sel) => () => { closeSettings(); fn(document.querySelector(sel)); };
