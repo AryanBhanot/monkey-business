@@ -5,7 +5,7 @@
 // @author      AryanBhanot
 // @icon        https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/icons/play-store-tweaks.png?v=0.10.0
 // @match       https://play.google.com/store/*
-// @version     0.16.1
+// @version     0.16.2
 // @license     MIT
 // @homepageURL https://github.com/AryanBhanot/monkey-business
 // @supportURL  https://github.com/AryanBhanot/monkey-business/issues
@@ -598,10 +598,10 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
                 tag.className = "gpt-fmt";
                 a.append(icon(ICON_LANG), sep, tag);
                 labelLang(a);
-                a.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); toggleLang(a); });
+                a.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); if (a._wasOpen) a._wasOpen = false; else toggleLang(a); });
+                a.addEventListener("pointerdown", () => { a._wasOpen = !!document.getElementById("gpt-lang"); }, true);
                 a.addEventListener("wheel", onLangWheel, { passive: false });
                 a.addEventListener("contextmenu", e => { e.preventDefault(); e.stopPropagation(); toggleLang(a); });
-                a.addEventListener("pointerdown", e => e.stopPropagation()); // keep Play's own handlers off our button
             } else if (l.copy) {
                 a.type = "button";
                 a.classList.add("gpt-copy");
@@ -636,18 +636,19 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
     // notch; the short cooldown stops a trackpad from spinning through them all.
     // Wheel input is summed up until it adds to a full notch (100), then one step, then a
     // cooldown, so a free-spinning wheel or trackpad moves one choice at a time.
-    let lastWheel = 0, lastEvt = 0, wheelAcc = 0;
-    function wheelDir(e) {
+    const wheelState = () => ({ step: 0, evt: 0, acc: 0 });
+    const buttonWheel = wheelState();
+    function wheelDir(e, st = buttonWheel, cooldown = 250) {
         const d = e.deltaY || e.deltaX; // some browsers turn Shift + wheel into a sideways scroll
         const now = Date.now();
         if (!d) return 0;
-        if (now - lastEvt > 300) wheelAcc = 0; // a pause forgets a half notch
-        lastEvt = now;
-        if (now - lastWheel < 250) return 0;
-        wheelAcc += e.deltaMode === 1 ? d * 33 : d; // lines -> pixels
-        if (Math.abs(wheelAcc) < 100) return 0;
-        const dir = wheelAcc > 0 ? 1 : -1;
-        wheelAcc = 0; lastWheel = now;
+        if (now - st.evt > 300) st.acc = 0; // a pause forgets a half notch
+        st.evt = now;
+        if (now - st.step < cooldown) return 0;
+        st.acc += e.deltaMode === 1 ? d * 40 : d; // lines -> pixels
+        if (Math.abs(st.acc) < 100) return 0;
+        const dir = st.acc > 0 ? 1 : -1;
+        st.acc = 0; st.step = now;
         return dir;
     }
     function onCopyWheel(e) {
@@ -1197,7 +1198,6 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         for (const [k, v] of Object.entries(values)) { if (v) u.searchParams.set(k, v); else u.searchParams.delete(k); }
         if (u.href !== location.href) location.assign(u.href);
     }
-    const clearLocale = () => go({ hl: "", gl: "" });
     // The button shows the country (or the language if there is none); while scrolling, the new choice.
     function labelLang(btn) {
         const p = btn._pend || pageLocale();
@@ -1255,13 +1255,11 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
                 inner.style.transform = `translateY(${(2 - idx) * 26}px)`;
                 items.forEach((it, n) => { it.classList.toggle("gpt-sel", n === idx); it.setAttribute("aria-selected", n === idx); });
             };
-            let last = 0;
+            const ws = wheelState();
             w.addEventListener("wheel", e => {
                 e.preventDefault();
-                const d = e.deltaY || e.deltaX, t = Date.now();
-                if (!d || t - last < 70) return;
-                last = t;
-                set(idx + (d > 0 ? 1 : -1));
+                const dir = wheelDir(e, ws, 120);
+                if (dir) set(idx + dir);
             }, { passive: false });
             w.addEventListener("keydown", e => {
                 if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); set(idx + (e.key === "ArrowDown" ? 1 : -1)); }
