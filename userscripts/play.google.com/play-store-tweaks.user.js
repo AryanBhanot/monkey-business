@@ -5,7 +5,7 @@
 // @author      AryanBhanot
 // @icon        https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/icons/play-store-tweaks.png?v=0.10.0
 // @match       https://play.google.com/store/*
-// @version     0.18.0
+// @version     0.18.1
 // @license     MIT
 // @homepageURL https://github.com/AryanBhanot/monkey-business
 // @supportURL  https://github.com/AryanBhanot/monkey-business/issues
@@ -383,7 +383,8 @@ html[data-gpt-theme="dark"] .gpt-panel .gpt-row label:hover { background: none; 
 @keyframes gpt-flash { from { background: rgba(1,135,95,.25); } to { background: transparent; } }
 html[data-gpt-theme="dark"] .gpt-panel .gpt-x:hover { background: rgba(255,255,255,.1); }
 html[data-gpt-theme="dark"] .gpt-panel .gpt-add:hover { background: rgba(129,201,149,.12); }
-html[data-gpt-theme="dark"] .gpt-bar { --gpt-accent: #81c995; --gpt-outline: #8e918f; --gpt-hover: rgba(129,201,149,.12); }
+html[data-gpt-theme="dark"] .gpt-bar, .gpt-bar.gpt-ondark { --gpt-accent: #81c995; --gpt-outline: #8e918f; --gpt-hover: rgba(129,201,149,.12); }
+.gpt-bar.gpt-ondark .gpt-gear:active { background: rgba(129,201,149,.2); }
 html[data-gpt-theme="dark"] .gpt-bar.gpt-float { background: #2d2f31; }
 html[data-gpt-theme="dark"] .gpt-gear:active { background: rgba(129,201,149,.2); }
 html[data-gpt-theme="dark"] .gpt-panel { --gpt-bg: #2d2f31; --gpt-fg: #e3e3e3; --gpt-sub: #c4c7c5; --gpt-line: #444746; --gpt-line2: #5f6368; --gpt-accent: #81c995; }
@@ -565,7 +566,9 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
                 if (l.br) { if (lines[lines.length - 1].length) lines.push([]); }
                 else if (!l.google && isOn(l)) lines[lines.length - 1].push(button(bar, l, t, title));
             }
-            lines[lines.length - 1].push(gearButton());
+            // The gear joins the shortest line (on phones the last one is often full).
+            const used = lines.filter(x => x.length);
+            (used.length ? used.reduce((a, b) => (b.length < a.length ? b : a)) : lines[0]).push(gearButton());
             for (const x of lines) if (x.length) { const d = document.createElement("div"); d.className = "gpt-line"; d.append(...x); bar.append(d); }
         }
         return bar;
@@ -575,13 +578,39 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
     // by its icon, so any language works), Wishlist (tied to the app's ID) and anything else.
     // A wrapper holding several of them (Share + Wishlist) is dissolved so each is its own item.
     const SHARE_ICON = 'path[d^="M18 16.08"]';
+    // On game pages Install (with "Install on more devices") sits a few wrappers deep in a
+    // column of its own, with Share and Wishlist in the next column. Those wrappers hold
+    // nothing else, so they are dissolved and the outer row (holding Share) becomes the row.
+    function widenRow(row) {
+        if (row.querySelector(SHARE_ICON)) return row;
+        const chain = [row];
+        for (let p = row.parentElement, i = 0; p && p !== document.body && i < 5; p = p.parentElement, i++) {
+            const kids = [...p.children].filter(visible);
+            if (kids.some(k => !k.contains(row) && k.querySelector(SHARE_ICON))) {
+                const cs = getComputedStyle(p);
+                if (!/flex/.test(cs.display) || !/^row/.test(cs.flexDirection)) return row;
+                for (const c of chain) c.classList.add("gpt-contents");
+                return p;
+            }
+            if (kids.length > 1) return row; // something else lives here: leave Google's layout alone
+            chain.push(p);
+        }
+        return row;
+    }
+    // The row item holding `el` (looking through dissolved wrappers).
+    function itemOf(el, row) {
+        while (el.parentElement && el.parentElement !== row && !el.parentElement.classList.contains("gpt-contents")) el = el.parentElement;
+        return el;
+    }
+    // The row's items: its children, looking through wrappers we dissolved.
+    const flat = el => [...el.children].flatMap(c => (c.classList.contains("gpt-contents") ? flat(c) : [c]));
     function googleItems(row, installNode, bar, pkg) {
         const found = { install: installNode }, other = [];
-        for (const c of row.children) {
+        for (const c of flat(row)) {
             if (c === installNode || c === bar || c.classList.contains("gpt-bar")) continue;
             const groups = [...c.children].filter(x => x.querySelector("button"));
-            if (!c.classList.contains("gpt-contents") && groups.length > 1) c.classList.add("gpt-contents");
-            for (const p of c.classList.contains("gpt-contents") ? [...c.children] : [c]) {
+            if (groups.length > 1) c.classList.add("gpt-contents");
+            for (const p of c.classList.contains("gpt-contents") ? flat(c) : [c]) {
                 const kind = p.querySelector(SHARE_ICON) ? "share"
                     : p.querySelector("button") && (p.matches(`[data-p*='"${pkg}"']`) || p.querySelector(`[data-p*='"${pkg}"']`)) ? "wishlist" : null;
                 if (kind && !found[kind]) found[kind] = p; else other.push(p);
@@ -637,15 +666,27 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
             bar._limit = limit;
         }
         const limit = bar._limit;
-        // APKM, AP and AB share one width: the widest of them. Measured once per bar (the
-        // labels never change), as soon as they are laid out.
-        if (!bar._sameDone) {
-            const same = [...bar.querySelectorAll(".gpt-same")];
-            const w = Math.ceil(Math.max(0, ...same.map(b => b.getBoundingClientRect().width)));
-            if (w || !same.length) { bar._sameDone = true; for (const b of same) b.style.minWidth = w + "px"; }
-        }
         const mw = limit ? Math.floor(limit - rr.left - 24) + "px" : "";
         if (row.style.maxWidth !== mw) row.style.maxWidth = mw;
+    }
+
+    // APKM, AP, AB and Exodus share one width: the widest of them. Measured once per bar (the
+    // labels never change), as soon as they are laid out, in every layout.
+    function sameWidth(bar) {
+        if (bar._sameDone) return;
+        const same = [...bar.querySelectorAll(".gpt-same")];
+        const w = Math.ceil(Math.max(0, ...same.map(b => b.getBoundingClientRect().width)));
+        if (w || !same.length) { bar._sameDone = true; for (const b of same) b.style.minWidth = w + "px"; }
+    }
+
+    // Whether the bar sits on a dark background: the dark band under a trailer, on an
+    // otherwise light page (the gear then takes the light green Google uses there).
+    function darkBehind(el) {
+        for (let e = el.parentElement; e && e !== document.documentElement; e = e.parentElement) {
+            const m = getComputedStyle(e).backgroundColor.match(/[\d.]+/g);
+            if (m && m.length >= 3 && (m[3] === undefined || +m[3] > 0.5)) return (0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]) < 110;
+        }
+        return document.documentElement.dataset.gptTheme === "dark";
     }
 
     function gearButton() {
@@ -847,11 +888,13 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
             keep.add(bar);
             for (const b of bar.querySelectorAll(".gpt-lang")) if (!b._pend) labelLang(b); // the address can change under us
             if (j.mode === "inline") {
-                const row = j.slot.node.parentElement;
+                const row = widenRow(j.slot.node.parentElement);
                 if (bar.parentElement !== row) row.append(bar);
-                arrange(row, j.slot.node, bar, j.t.pkg);
+                arrange(row, itemOf(j.t.el, row), bar, j.t.pkg);
             } else if (j.slot) { if (bar.previousElementSibling !== j.slot.node || !bar.isConnected) j.slot.node.after(bar); }
             else if (bar.parentElement !== document.body) document.body.append(bar);
+            sameWidth(bar);
+            if (!bar._bgDone) { bar._bgDone = true; bar.classList.toggle("gpt-ondark", darkBehind(bar)); }
         }
         for (const b of existing) if (!keep.has(b)) b.remove();
     }
