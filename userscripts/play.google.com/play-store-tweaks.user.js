@@ -5,7 +5,7 @@
 // @author      AryanBhanot
 // @icon        https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/icons/play-store-tweaks.png?v=0.10.0
 // @match       https://play.google.com/store/*
-// @version     0.16.2
+// @version     0.16.3
 // @license     MIT
 // @homepageURL https://github.com/AryanBhanot/monkey-business
 // @supportURL  https://github.com/AryanBhanot/monkey-business/issues
@@ -224,7 +224,7 @@
        while animating), so the text never switches rendering and "glows". Same as Google's buttons. */
     transform: translateZ(0); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
     transition: background-color .28s cubic-bezier(.4,0,.2,1), box-shadow .28s cubic-bezier(.4,0,.2,1); }
-.gpt-btn { padding: 0 14px; border: 0; color: #fff !important; }
+.gpt-btn { padding: 0 14px; border: 0; margin: 0; min-width: 0; min-height: 0; color: #fff !important; } /* Play gives every <button> a 40px minimum */
 /* Like Google's Install button: it DARKENS and gains a small shadow. The strength matches
    the darkest Install hover Play uses (#01875f -> about #095943, i.e. #202124 at ~45%). */
 .gpt-btn:hover, .gpt-btn:focus-visible { box-shadow: inset 0 0 0 999px rgba(32,33,36,.42), 0 1px 2px rgba(60,64,67,.3), 0 1px 3px 1px rgba(60,64,67,.15); }
@@ -236,6 +236,8 @@
 .gpt-gear svg { width: 20px; height: 20px; fill: currentColor; pointer-events: none; }
 /* Copy: [icon | format] */
 .gpt-bar .gpt-btn.gpt-copy, .gpt-bar .gpt-btn.gpt-lang { gap: 6px; padding: 0 9px 0 10px; }
+.gpt-bar .gpt-btn.gpt-lang.gpt-iconly { width: var(--gpt-h); padding: 0; }
+.gpt-lang.gpt-iconly .gpt-sep, .gpt-lang.gpt-iconly .gpt-fmt { display: none; }
 .gpt-copy svg, .gpt-lang svg { width: 18px; height: 18px; flex: none; fill: currentColor; pointer-events: none; }
 .gpt-copy .gpt-sep, .gpt-lang .gpt-sep { width: 1px; height: 50%; background: rgba(255,255,255,.5); flex: none; pointer-events: none; }
 /* No fixed width: the button is only as wide as the current tag (md is narrower than html) */
@@ -564,11 +566,13 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
             const b = img.getBoundingClientRect();
             if (b.width >= 96 && b.left > rr.left + 120 && b.left < right &&b.top < rr.bottom + 40 && b.bottom > rr.top - 40) limit = limit ? Math.min(limit, b.left) : b.left;
         }
-        // APKM, AP and AB share one width: the widest of them (measured with the minimum cleared).
-        const same = [...bar.querySelectorAll(".gpt-same")];
-        for (const b of same) b.style.minWidth = "";
-        const w = Math.ceil(Math.max(0, ...same.map(b => b.getBoundingClientRect().width)));
-        if (w) for (const b of same) b.style.minWidth = w + "px";
+        // APKM, AP and AB share one width: the widest of them. Measured once per bar (the
+        // labels never change), as soon as they are laid out.
+        if (!bar._sameDone) {
+            const same = [...bar.querySelectorAll(".gpt-same")];
+            const w = Math.ceil(Math.max(0, ...same.map(b => b.getBoundingClientRect().width)));
+            if (w || !same.length) { bar._sameDone = true; for (const b of same) b.style.minWidth = w + "px"; }
+        }
         const mw = limit ? Math.floor(limit - rr.left - 24) + "px" : "";
         if (row.style.maxWidth !== mw) row.style.maxWidth = mw;
     }
@@ -597,6 +601,8 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
                 sep.className = "gpt-sep";
                 tag.className = "gpt-fmt";
                 a.append(icon(ICON_LANG), sep, tag);
+                a.title = "Language & country\nScroll: country · Shift + scroll: language\nClick or right-click: menu (pick Default to reset)";
+                a.setAttribute("aria-label", "Language and country");
                 labelLang(a);
                 a.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); if (a._wasOpen) a._wasOpen = false; else toggleLang(a); });
                 a.addEventListener("pointerdown", () => { a._wasOpen = !!document.getElementById("gpt-lang"); }, true);
@@ -632,25 +638,25 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         btn.title = `Copy app info as ${f.name}\nScroll or right-click to change format`;
         btn.setAttribute("aria-label", `Copy app info as ${f.name}`);
     }
-    // Mouse wheel over Copy cycles through the formats. One step per
-    // notch; the short cooldown stops a trackpad from spinning through them all.
-    // Wheel input is summed up until it adds to a full notch (100), then one step, then a
-    // cooldown, so a free-spinning wheel or trackpad moves one choice at a time.
-    const wheelState = () => ({ step: 0, evt: 0, acc: 0 });
-    const buttonWheel = wheelState();
-    function wheelDir(e, st = buttonWheel, cooldown = 250) {
+    // Wheel steps: -1, 0 or 1 for a wheel event. Input is summed until it reaches `notch`
+    // pixels, then one step, then `cooldown` ms in which input is ignored. The buttons take a
+    // step per event (notch 1); the menu wheels want a whole notch, so they move slower.
+    const wheelState = (cooldown, notch) => ({ cooldown, notch, step: 0, evt: 0, acc: 0 });
+    const buttonWheel = wheelState(120, 1);
+    function wheelDir(e, st = buttonWheel) {
         const d = e.deltaY || e.deltaX; // some browsers turn Shift + wheel into a sideways scroll
         const now = Date.now();
         if (!d) return 0;
         if (now - st.evt > 300) st.acc = 0; // a pause forgets a half notch
         st.evt = now;
-        if (now - st.step < cooldown) return 0;
+        if (now - st.step < st.cooldown) return 0;
         st.acc += e.deltaMode === 1 ? d * 40 : d; // lines -> pixels
-        if (Math.abs(st.acc) < 100) return 0;
+        if (Math.abs(st.acc) < st.notch) return 0;
         const dir = st.acc > 0 ? 1 : -1;
         st.acc = 0; st.step = now;
         return dir;
     }
+    // Mouse wheel over Copy cycles through the formats.
     function onCopyWheel(e) {
         e.preventDefault();
         const dir = wheelDir(e);
@@ -763,6 +769,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
                 for (const a of bar.querySelectorAll("a.gpt-btn")) a.href = a._link.url({ pkg: j.t.pkg, title: j.title });
             }
             keep.add(bar);
+            for (const b of bar.querySelectorAll(".gpt-lang")) if (!b._pend) labelLang(b); // the address can change under us
             if (j.mode === "inline") {
                 const row = j.slot.node.parentElement;
                 if (bar.parentElement !== row) row.append(bar);
@@ -1201,11 +1208,10 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
     // The button shows the country (or the language if there is none); while scrolling, the new choice.
     function labelLang(btn) {
         const p = btn._pend || pageLocale();
-        const code = btn._shown !== undefined ? btn._shown : p.gl || p.hl.split(/[-_]/)[0];
-        btn.querySelector(".gpt-fmt").textContent = (code || "").toLowerCase();
-        btn.querySelector(".gpt-sep").style.display = code ? "" : "none";
-        btn.title = "Language & country\nScroll: country · Shift + scroll: language\nClick or right-click: menu (pick Default to reset)";
-        btn.setAttribute("aria-label", "Language and country");
+        const code = (btn._shown !== undefined ? btn._shown : p.gl || p.hl.split(/[-_]/)[0] || "").toLowerCase();
+        const tag = btn.querySelector(".gpt-fmt");
+        if (tag.textContent !== code) tag.textContent = code; // only on change: update() calls this all the time
+        btn.classList.toggle("gpt-iconly", !code); // just the globe: a square button like the gear
     }
     // Scrolling previews a choice on the button and reloads once you stop for a moment.
     function onLangWheel(e) {
@@ -1255,10 +1261,10 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
                 inner.style.transform = `translateY(${(2 - idx) * 26}px)`;
                 items.forEach((it, n) => { it.classList.toggle("gpt-sel", n === idx); it.setAttribute("aria-selected", n === idx); });
             };
-            const ws = wheelState();
+            const ws = wheelState(180, 100);
             w.addEventListener("wheel", e => {
                 e.preventDefault();
-                const dir = wheelDir(e, ws, 120);
+                const dir = wheelDir(e, ws);
                 if (dir) set(idx + dir);
             }, { passive: false });
             w.addEventListener("keydown", e => {
@@ -1304,7 +1310,12 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         if (timer) return;
         timer = setTimeout(() => { timer = 0; try { update(); } catch (err) { console.error("[Play Store Tweaks]", err); } }, delay || 100);
     }
-    new MutationObserver(() => schedule()).observe(document.documentElement, { childList: true, subtree: true });
+    // Changes inside our own bar or menus (labels, ticks, menus opening) are not Play's and
+    // need no re-check; skipping them also means update() can never wake itself up.
+    const ours = n => !!(n.closest && n.closest(".gpt-bar, .gpt-panel"));
+    const oursOnly = r => ours(r.target) || (r.addedNodes.length + r.removedNodes.length > 0
+        && [...r.addedNodes, ...r.removedNodes].every(n => n.classList && n.classList.contains("gpt-panel"))); // (a bar coming or going may be Play's doing)
+    new MutationObserver(recs => { if (!recs.every(oursOnly)) schedule(); }).observe(document.documentElement, { childList: true, subtree: true });
     window.addEventListener("popstate", () => schedule());
     window.addEventListener("resize", () => schedule(200));
     schedule(0);
