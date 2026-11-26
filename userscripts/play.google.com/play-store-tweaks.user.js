@@ -5,7 +5,7 @@
 // @author      AryanBhanot
 // @icon        https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/icons/play-store-tweaks.png?v=0.10.0
 // @match       https://play.google.com/store/*
-// @version     0.16.3
+// @version     0.17.0
 // @license     MIT
 // @homepageURL https://github.com/AryanBhanot/monkey-business
 // @supportURL  https://github.com/AryanBhanot/monkey-business/issues
@@ -224,7 +224,7 @@
        while animating), so the text never switches rendering and "glows". Same as Google's buttons. */
     transform: translateZ(0); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
     transition: background-color .28s cubic-bezier(.4,0,.2,1), box-shadow .28s cubic-bezier(.4,0,.2,1); }
-.gpt-btn { padding: 0 14px; border: 0; margin: 0; min-width: 0; min-height: 0; color: #fff !important; } /* Play gives every <button> a 40px minimum */
+.gpt-btn { -webkit-touch-callout: none; padding: 0 14px; border: 0; margin: 0; min-width: 0; min-height: 0; color: #fff !important; } /* Play gives every <button> a 40px minimum */
 /* Like Google's Install button: it DARKENS and gains a small shadow. The strength matches
    the darkest Install hover Play uses (#01875f -> about #095943, i.e. #202124 at ~45%). */
 .gpt-btn:hover, .gpt-btn:focus-visible { box-shadow: inset 0 0 0 999px rgba(32,33,36,.42), 0 1px 2px rgba(60,64,67,.3), 0 1px 3px 1px rgba(60,64,67,.15); }
@@ -249,7 +249,10 @@ html[data-gpt-gallery="on"][data-gpt-theme="dark"] [data-gpt-scrollbar] { scroll
 #gpt-lang { width: 268px; }
 #gpt-lang .gpt-list { display: grid; grid-template-columns: 1fr 1fr; gap: 0 6px; padding: 0 12px 4px; }
 #gpt-lang .gpt-col { min-width: 0; }
-#gpt-lang .gpt-col .gpt-sub { padding-left: 4px; }
+#gpt-lang .gpt-find { box-sizing: border-box; width: 100%; height: 28px; margin: 4px 0; padding: 0 8px; border: 1px solid var(--gpt-line2); border-radius: 6px;
+    background: transparent; color: var(--gpt-fg); font: 13px/26px "Google Sans", Roboto, Arial, sans-serif; outline: none; }
+#gpt-lang .gpt-find:focus { border-color: var(--gpt-accent); box-shadow: 0 0 0 1px var(--gpt-accent); }
+#gpt-lang .gpt-find::placeholder { color: var(--gpt-sub); }
 .gpt-wheel { position: relative; height: 130px; overflow: hidden; outline: none; cursor: default; user-select: none; touch-action: none;
     -webkit-mask-image: linear-gradient(transparent, #000 32%, #000 68%, transparent); mask-image: linear-gradient(transparent, #000 32%, #000 68%, transparent); }
 .gpt-wheel::before { content: ""; position: absolute; left: 0; right: 0; top: 52px; height: 26px; border-radius: 6px; background: rgba(1,135,95,.12); pointer-events: none; }
@@ -604,10 +607,18 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
                 a.title = "Language & country\nScroll: country · Shift + scroll: language\nClick or right-click: menu (pick Default to reset)";
                 a.setAttribute("aria-label", "Language and country");
                 labelLang(a);
-                a.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); if (a._wasOpen) a._wasOpen = false; else toggleLang(a); });
+                a.addEventListener("click", e => {
+                    e.preventDefault(); e.stopPropagation();
+                    if (a._wasOpen) a._wasOpen = false; else menuOnce(a, toggleLang);
+                });
                 a.addEventListener("pointerdown", () => { a._wasOpen = !!document.getElementById("gpt-lang"); }, true);
                 a.addEventListener("wheel", onLangWheel, { passive: false });
-                a.addEventListener("contextmenu", e => { e.preventDefault(); e.stopPropagation(); toggleLang(a); });
+                a.addEventListener("keydown", e => { // arrow keys step like the wheel
+                    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+                    e.preventDefault(); e.stopPropagation();
+                    stepLang(a, e.shiftKey ? "hl" : "gl", e.key === "ArrowDown" ? 1 : -1);
+                });
+                a.addEventListener("contextmenu", e => { e.preventDefault(); e.stopPropagation(); menuOnce(a, toggleLang); });
             } else if (l.copy) {
                 a.type = "button";
                 a.classList.add("gpt-copy");
@@ -616,9 +627,10 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
                 fmt.className = "gpt-fmt";
                 a.append(icon(ICON_COPY), sep, fmt);
                 labelCopy(a);
-                a.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); copyInfo(a, bar); });
+                a.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); if (!justOpened(a)) copyInfo(a, bar); });
                 a.addEventListener("wheel", onCopyWheel, { passive: false });
-                a.addEventListener("contextmenu", e => { e.preventDefault(); e.stopPropagation(); toggleFormats(a); });
+                a.addEventListener("contextmenu", e => { e.preventDefault(); e.stopPropagation(); menuOnce(a, toggleFormats); });
+                longPress(a, () => menuOnce(a, toggleFormats)); // phones have no right-click
             } else {
                 a.textContent = l.label;
                 a.title = l.name;
@@ -630,6 +642,23 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
             if (l.same) a.classList.add("gpt-same");
             return a;
         }
+    }
+
+    // Touch: holding a button for half a second opens its menu (some phones also send a
+    // contextmenu event for the same hold, so menuOnce makes sure it opens only once).
+    function longPress(el, fn) {
+        el.addEventListener("pointerdown", e => {
+            if (e.pointerType !== "touch") return;
+            const t = setTimeout(fn, 500);
+            const stop = () => { clearTimeout(t); for (const k of ["pointerup", "pointercancel", "pointerleave"]) el.removeEventListener(k, stop); };
+            for (const k of ["pointerup", "pointercancel", "pointerleave"]) el.addEventListener(k, stop);
+        });
+    }
+    const justOpened = el => Date.now() - (el._menuAt || 0) < 800;
+    function menuOnce(el, open) {
+        if (justOpened(el)) return;
+        el._menuAt = Date.now();
+        open(el);
     }
 
     function labelCopy(btn) {
@@ -818,92 +847,30 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
             if (d && r.animate) r.animate([{ transform: `${T}(${d}px)` }, { transform: `${T}(0)` }], { duration: 200, easing: "cubic-bezier(.2,0,0,1)" });
         }
     }
-    // Sideways version for the chips: the whole chip is the handle, so a press only becomes
-    // a drag once the pointer has moved a few pixels (otherwise it is a normal click/tick).
-    function dragChip(chip, wrap, commit) {
-        chip.addEventListener("pointerdown", e => {
+    // Drag to reorder `item` inside `list`, along `axis` ("Y": rows, "X": chips). Pressing
+    // `handle` starts the drag at once; pressing anywhere else on the item only becomes a drag
+    // after the pointer moves a few pixels, so ticking and clicking still work. The item
+    // follows the pointer, the others slide out of the way (FLIP), and `commit` gets the new
+    // order on release. Keyboard: arrow keys on the handle (or the item) move it one place.
+    function dragSort(item, list, commit, axis, handle) {
+        const X = axis === "X", side = X ? "left" : "top", pos = X ? "clientX" : "clientY";
+        const off = X ? "offsetLeft" : "offsetTop", size = X ? "offsetWidth" : "offsetHeight";
+        const lifted = v => `translate${axis}(${v}px) scale(${X ? 1.04 : 1.02})`;
+        item.addEventListener("pointerdown", e => {
             if (e.button !== 0) return;
-            let on = false, grab = 0;
-            const follow = x => { chip.style.transform = `translateX(${x - wrap.getBoundingClientRect().left - grab - chip.offsetLeft}px) scale(1.04)`; };
-            const move = ev => {
-                if (ev.pointerId !== e.pointerId) return;
-                if (!on) {
-                    if (Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) < 5) return;
-                    on = dragging = true;
-                    grab = e.clientX - chip.getBoundingClientRect().left;
-                    chip.classList.add("gpt-dragging");
-                    const panel = chip.closest(".gpt-panel");
-                    if (panel) panel.classList.add("gpt-busy");
-                }
-                ev.preventDefault();
-                const centre = ev.clientX - wrap.getBoundingClientRect().left - grab + chip.offsetWidth / 2;
-                let next = null;
-                for (const c of wrap.children) { if (c !== chip && centre < c.offsetLeft + c.offsetWidth / 2) { next = c; break; } }
-                const inPlace = next ? chip.nextElementSibling === next : wrap.lastElementChild === chip;
-                if (!inPlace) flip(wrap, () => { if (next) wrap.insertBefore(chip, next); else wrap.append(chip); }, chip, "X");
-                follow(ev.clientX);
-            };
-            const end = ev => {
-                if (ev.pointerId !== e.pointerId) return;
-                window.removeEventListener("pointermove", move, true);
-                window.removeEventListener("pointerup", end, true);
-                window.removeEventListener("pointercancel", end, true);
-                if (!on) return; // just a click
-                const from = chip.getBoundingClientRect().left;
-                chip.style.transform = "";
-                chip.classList.remove("gpt-dragging");
-                const panel = chip.closest(".gpt-panel");
-                if (panel) panel.classList.remove("gpt-busy");
-                if (!reduceMotion() && chip.animate) {
-                    const d = from - chip.getBoundingClientRect().left;
-                    if (d) chip.animate([{ transform: `translateX(${d}px) scale(1.04)` }, { transform: "none" }], { duration: 160, easing: "cubic-bezier(.2,0,0,1)" });
-                }
-                dragging = false;
-                // The release would also count as a click on the chip and flip its tick: swallow it.
-                const swallow = c => { c.preventDefault(); c.stopPropagation(); };
-                window.addEventListener("click", swallow, { capture: true, once: true });
-                setTimeout(() => window.removeEventListener("click", swallow, true), 0);
-                if (wrap.isConnected) commit(keysOf(wrap));
-            };
-            window.addEventListener("pointermove", move, true);
-            window.addEventListener("pointerup", end, true);
-            window.addEventListener("pointercancel", end, true);
-        });
-        // Keyboard: with the chip's checkbox focused, left/right arrows move it.
-        chip.addEventListener("keydown", e => {
-            let go;
-            if (e.key === "ArrowLeft" && chip.previousElementSibling) go = () => wrap.insertBefore(chip, chip.previousElementSibling);
-            else if (e.key === "ArrowRight" && chip.nextElementSibling) go = () => chip.nextElementSibling.after(chip);
-            else return;
-            e.preventDefault();
-            const f = document.activeElement;
-            flip(wrap, go, null, "X");
-            if (f) f.focus();
-            commit(keysOf(wrap));
-        });
-    }
-    function dragRow(row, handle, list, commit) {
-        // The whole row drags. Pressing the handle starts at once; pressing anywhere else only
-        // becomes a drag after the pointer moves a few pixels, so ticking and clicking still work.
-        row.addEventListener("pointerdown", e => {
-            if (e.button !== 0) return;
-            const fromHandle = handle.contains(e.target);
-            if (fromHandle) e.preventDefault();
-            const panel = row.closest(".gpt-panel");
+            const panel = item.closest(".gpt-panel");
             let on = false, grab = 0;
             const start = () => {
                 on = dragging = true;
-                grab = e.clientY - row.getBoundingClientRect().top; // where on the row you took hold
-                row.classList.add("gpt-dragging");
+                grab = e[pos] - item.getBoundingClientRect()[side]; // where on the item you took hold
+                item.classList.add("gpt-dragging");
                 if (panel) panel.classList.add("gpt-busy");
             };
-            if (fromHandle) start();
-            // The row's own slot (offsetTop) ignores transforms, so this is the offset from
-            // its slot to the pointer; it stays correct however the other rows move.
-            const follow = y => { row.style.transform = `translateY(${y - list.getBoundingClientRect().top - grab - row.offsetTop}px) scale(1.02)`; };
-            if (fromHandle) follow(e.clientY);
-            // Listen on the window, not the handle: moving the row in the DOM would
-            // drop pointer capture and strand the drag halfway.
+            // The item's own slot (offsetTop/Left) ignores transforms, so this is the offset from
+            // its slot to the pointer; it stays right however the others move.
+            const follow = p => { item.style.transform = lifted(p - list.getBoundingClientRect()[side] - grab - item[off]); };
+            if (handle && handle.contains(e.target)) { e.preventDefault(); start(); follow(e[pos]); }
+            // Listen on the window: moving the item in the DOM would drop pointer capture.
             const move = ev => {
                 if (ev.pointerId !== e.pointerId) return;
                 if (!on) {
@@ -911,12 +878,12 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
                     start();
                 }
                 ev.preventDefault();
-                const centre = ev.clientY - list.getBoundingClientRect().top - grab + row.offsetHeight / 2;
+                const centre = ev[pos] - list.getBoundingClientRect()[side] - grab + item[size] / 2;
                 let next = null;
-                for (const r of list.children) { if (r !== row && centre < r.offsetTop + r.offsetHeight / 2) { next = r; break; } }
-                const inPlace = next ? row.nextElementSibling === next : list.lastElementChild === row;
-                if (!inPlace) flip(list, () => { if (next) list.insertBefore(row, next); else list.append(row); }, row);
-                follow(ev.clientY);
+                for (const c of list.children) if (c !== item && centre < c[off] + c[size] / 2) { next = c; break; }
+                const inPlace = next ? item.nextElementSibling === next : list.lastElementChild === item;
+                if (!inPlace) flip(list, () => { if (next) list.insertBefore(item, next); else list.append(item); }, item, axis);
+                follow(ev[pos]);
             };
             const end = ev => {
                 if (ev.pointerId !== e.pointerId) return;
@@ -925,14 +892,12 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
                 window.removeEventListener("pointercancel", end, true);
                 if (!on) return; // just a click
                 // Drop: settle from where you let go into the slot.
-                const from = row.getBoundingClientRect().top;
-                row.style.transform = "";
-                row.classList.remove("gpt-dragging");
+                const from = item.getBoundingClientRect()[side];
+                item.style.transform = "";
+                item.classList.remove("gpt-dragging");
                 if (panel) panel.classList.remove("gpt-busy");
-                if (!reduceMotion() && row.animate) {
-                    const d = from - row.getBoundingClientRect().top;
-                    if (d) row.animate([{ transform: `translateY(${d}px) scale(1.02)` }, { transform: "none" }], { duration: 160, easing: "cubic-bezier(.2,0,0,1)" });
-                }
+                const d = from - item.getBoundingClientRect()[side];
+                if (d && !reduceMotion() && item.animate) item.animate([{ transform: lifted(d) }, { transform: "none" }], { duration: 160, easing: "cubic-bezier(.2,0,0,1)" });
                 dragging = false;
                 // The release would also count as a click (ticking a box, picking a format): swallow it.
                 const swallow = c => { c.preventDefault(); c.stopPropagation(); };
@@ -944,17 +909,19 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
             window.addEventListener("pointerup", end, true);
             window.addEventListener("pointercancel", end, true);
         });
-        handle.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); });
-        handle.addEventListener("keydown", e => {
+        const [back, fwd] = X ? ["ArrowLeft", "ArrowRight"] : ["ArrowUp", "ArrowDown"];
+        (handle || item).addEventListener("keydown", e => {
             let go;
-            if (e.key === "ArrowUp" && row.previousElementSibling) go = () => list.insertBefore(row, row.previousElementSibling);
-            else if (e.key === "ArrowDown" && row.nextElementSibling) go = () => row.nextElementSibling.after(row);
+            if (e.key === back && item.previousElementSibling) go = () => list.insertBefore(item, item.previousElementSibling);
+            else if (e.key === fwd && item.nextElementSibling) go = () => item.nextElementSibling.after(item);
             else return;
             e.preventDefault();
-            flip(list, go, null);
-            handle.focus();
+            const f = document.activeElement;
+            flip(list, go, null, axis);
+            if (f) f.focus();
             commit(keysOf(list));
         });
+        if (handle) handle.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); });
     }
     function makeHandle(row, list, name, commit) {
         const handle = document.createElement("span");
@@ -964,7 +931,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         handle.setAttribute("role", "button");
         handle.setAttribute("aria-label", `Move ${name}`);
         handle.append(icon(ICON_DRAG));
-        dragRow(row, handle, list, commit);
+        dragSort(row, list, commit, "Y", handle);
         return handle;
     }
 
@@ -1094,7 +1061,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         const gLabel = option("gallery", "Scrollbar on screenshot galleries");
         const tip = document.createElement("div");
         tip.className = "gpt-sub gpt-hint";
-        tip.textContent = "Tip: right-click Copy or the globe for more options.";
+        tip.textContent = "Tip: right-click (or hold) Copy for what and how to copy; click the globe to pick a language.";
         panel.append(sub2, uLabel, gLabel, tip);
         document.body.append(panel);
         placePanel(panel, anchor);
@@ -1128,7 +1095,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
                 chip.classList.toggle("gpt-on", box.checked);
             });
             chip.append(box, f.name);
-            dragChip(chip, chips, keys => setOpts({ fieldOrder: keys }));
+            dragSort(chip, chips, keys => setOpts({ fieldOrder: keys }), "X");
             chips.append(chip);
         }
         list.previousElementSibling.before(subhead("Include · drag to reorder"), chips); // above the "Format" heading
@@ -1179,8 +1146,8 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         placePanel(panel, anchor, true);
     }
     // Language & region: reopen this same page with another hl= (language) or gl= (country).
-    // Scroll over the globe button to cycle countries (Shift + scroll for languages), or
-    // right-click it for two small wheels.
+    // Scroll over the globe button (or use the arrow keys on it) to cycle countries, with
+    // Shift for languages; click it for two small wheels with search fields.
     const LANGS = ["en", "es", "fr", "de", "pt-BR", "it", "ru", "ja", "ko", "zh-CN", "zh-TW", "ar", "hi", "tr", "id", "nl", "pl"];
     const REGIONS = ["US", "GB", "CA", "AU", "IN", "DE", "FR", "ES", "IT", "BR", "MX", "JP", "KR", "RU", "TR", "ID", "NL", "PL"];
     const same = (a, b) => a.replace("_", "-").toLowerCase() === b.replace("_", "-").toLowerCase();
@@ -1198,6 +1165,33 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         const codes = [""], cur = pageLocale()[kind];
         for (const c of [...(kind === "hl" ? LANGS : REGIONS), cur]) if (c && !codes.some(x => same(x, c))) codes.push(c);
         return codes;
+    }
+    // Every language / country the browser can name, for the search fields: the common ones
+    // first, then the rest by name. Built once, the first time a search needs it.
+    const allCodes = {};
+    function everything(kind) {
+        if (allCodes[kind]) return allCodes[kind];
+        const out = (kind === "hl" ? LANGS : REGIONS).slice(), extra = [];
+        try {
+            const dn = new Intl.DisplayNames(["en"], { type: kind === "hl" ? "language" : "region", fallback: "none" });
+            const az = "abcdefghijklmnopqrstuvwxyz";
+            for (const x of az) for (const y of az) {
+                const c = kind === "hl" ? x + y : (x + y).toUpperCase();
+                if (kind === "gl" && /^(EU|EZ|UN|ZZ|Q[M-Z]|X[A-Z])$/.test(c)) continue; // groups and test codes, not countries
+                const n = dn.of(c);
+                if (n && n !== c && !out.some(o => same(o, c))) extra.push({ c, n });
+            }
+        } catch (_) { /* old browser: the common ones only */ }
+        extra.sort((a, b) => a.n.localeCompare(b.n));
+        return (allCodes[kind] = out.concat(extra.map(x => x.c)));
+    }
+    // Best match for what was typed: the code itself, then a name that starts with it, then one
+    // that contains it (common ones win ties).
+    function findCode(kind, type, q) {
+        q = q.trim().toLowerCase();
+        if (!q) return null;
+        const all = everything(kind), name = c => displayName(type, c).toLowerCase();
+        return all.find(c => c.toLowerCase() === q) || all.find(c => name(c).startsWith(q)) || all.find(c => name(c).includes(q)) || null;
     }
     // Reload with these parameters set ("" removes one).
     function go(values) {
@@ -1217,8 +1211,9 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
     function onLangWheel(e) {
         e.preventDefault();
         const dir = wheelDir(e);
-        if (!dir) return;
-        const btn = e.currentTarget, kind = e.shiftKey ? "hl" : "gl";
+        if (dir) stepLang(e.currentTarget, e.shiftKey ? "hl" : "gl", dir);
+    }
+    function stepLang(btn, kind, dir) {
         const p = btn._pend || (btn._pend = pageLocale());
         const list = choices(kind), i = list.findIndex(c => same(c, p[kind]));
         p[kind] = list[(i + dir + list.length) % list.length];
@@ -1233,13 +1228,20 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
     function toggleLang(anchor) {
         if (document.getElementById("gpt-lang")) { closeSettings(); return; }
         closeSettings();
-        const { panel, list } = newPanel("gpt-lang", "Language & region", "Scroll each wheel, then Apply", null);
+        const { panel, list } = newPanel("gpt-lang", "Language & region", "Type or scroll, then Apply", null);
         const now = pageLocale(), get = {};
         const apply = () => go({ hl: get.hl(), gl: get.gl() });
         const wheel = (title, kind, type) => {
             const col = document.createElement("div");
             col.className = "gpt-col";
-            col.append(subhead(title));
+            // The column heading is a search field: type a name or code to jump there.
+            const find = document.createElement("input");
+            find.type = "search";
+            find.className = "gpt-find";
+            find.placeholder = title + "…";
+            find.setAttribute("aria-label", "Find a " + title.toLowerCase());
+            find.spellcheck = false;
+            col.append(find);
             const codes = choices(kind);
             let idx = Math.max(0, codes.findIndex(c => same(c, now[kind])));
             const w = document.createElement("div"), inner = document.createElement("div");
@@ -1248,14 +1250,18 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
             w.setAttribute("role", "listbox");
             w.setAttribute("aria-label", title);
             inner.className = "gpt-wheel-in";
-            const items = codes.map((c, i) => {
-                const it = document.createElement("div");
+            const items = [];
+            const addItem = c => {
+                const i = items.length, it = document.createElement("div");
                 it.className = "gpt-wi";
                 it.setAttribute("role", "option");
                 it.textContent = displayName(type, c);
                 it.addEventListener("click", () => set(i));
-                return it;
-            });
+                items.push(it);
+                inner.append(it);
+                return i;
+            };
+            codes.forEach(addItem);
             const set = i => {
                 idx = (i + codes.length) % codes.length;
                 inner.style.transform = `translateY(${(2 - idx) * 26}px)`;
@@ -1271,7 +1277,18 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
                 if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); set(idx + (e.key === "ArrowDown" ? 1 : -1)); }
                 else if (e.key === "Enter") { e.preventDefault(); apply(); }
             });
-            inner.append(...items);
+            find.addEventListener("input", () => {
+                const c = findCode(kind, type, find.value);
+                if (!c) return;
+                let i = codes.findIndex(x => same(x, c));
+                if (i < 0) { codes.push(c); i = addItem(c); } // not one of the common ones: add it to the wheel
+                set(i);
+            });
+            find.addEventListener("keydown", e => {
+                e.stopPropagation(); // typing is for us, not Play's shortcuts
+                if (e.key === "Enter") { e.preventDefault(); apply(); }
+                else if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); set(idx + (e.key === "ArrowDown" ? 1 : -1)); }
+            });
             w.append(inner);
             col.append(w);
             list.append(col);
