@@ -5,7 +5,7 @@
 // @author      AryanBhanot
 // @icon        https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/icons/play-store-tweaks.png?v=0.10.0
 // @match       https://play.google.com/store/*
-// @version     0.13.0
+// @version     0.14.0
 // @license     MIT
 // @homepageURL https://github.com/AryanBhanot/monkey-business
 // @supportURL  https://github.com/AryanBhanot/monkey-business/issues
@@ -66,7 +66,39 @@
         { key: "bb", name: "BBCode", text: (p, i) => inline(p, i, { esc: s => s, code: s => s, link: (t, u, bare) => (bare ? `[url]${u}[/url]` : `[url=${u}]${t}[/url]`) }) },
         { key: "html", name: "HTML", text: (p, i) => inline(p, i, { esc: escHtml, code: escHtml, link: (t, u) => `<a href="${escHtml(u)}">${escHtml(t)}</a>` }) },
         { key: "json", name: "JSON", text: p => JSON.stringify(Object.fromEntries(p.map(x => [{ name: "name", dev: "developer", pkg: "id", url: "url" }[x.key], x.v])), null, 2) },
+        { key: "post", name: "Forum post (BBCode)", text: (p, i) => forumPost(i) },
     ];
+    // A ready-to-post BBCode block: icon, name and developer, category, rating, price, age
+    // rating, the short description and the ID. All of it comes from the data Play puts in the
+    // app page for search engines; on search results only the name, developer and link are known.
+    function forumPost(i) {
+        const j = i.ld || {}, r = j.aggregateRating, o = Array.isArray(j.offers) ? j.offers[0] : j.offers;
+        const dev = i.dev || (j.author && j.author.name) || "";
+        const out = [];
+        if (j.image) out.push(`[img]${j.image}=s128[/img]`);
+        out.push(`[b][url=${i.url}]${i.name}[/url][/b]` + (dev ? ` by ${dev}` : ""));
+        const facts = [];
+        if (j.applicationCategory) facts.push(j.applicationCategory.replace(/_/g, " ").toLowerCase().replace(/^\w/, c => c.toUpperCase()));
+        if (r && +r.ratingValue) facts.push(`${(+r.ratingValue).toFixed(1)}★` + (+r.ratingCount ? ` (${(+r.ratingCount).toLocaleString("en")} ratings)` : ""));
+        if (o && o.price !== undefined) facts.push(+o.price ? `${o.price} ${o.priceCurrency || ""}`.trim() : "Free");
+        if (j.contentRating) facts.push(j.contentRating);
+        if (facts.length) out.push(facts.join(" · "));
+        if (j.description) out.push(`[quote]${j.description.trim()}[/quote]`);
+        out.push(`ID: [code]${i.pkg}[/code]`);
+        return out.join("\n");
+    }
+    // Play's search-engine data for this app page (only when it is really about this app:
+    // after in-app navigation the old page's data can still be there).
+    function appData(pkg) {
+        if (detailsPkg() !== pkg) return null;
+        for (const s of document.querySelectorAll('script[type="application/ld+json"]')) {
+            try {
+                const j = JSON.parse(s.textContent);
+                if (j && j["@type"] === "SoftwareApplication" && new URL(j.url).searchParams.get("id") === pkg) return j;
+            } catch (_) { /* not ours */ }
+        }
+        return null;
+    }
     // Names used before: 0.8 renamed these; 0.10 replaced "link only" / "package only" with the field filter.
     const OLD_FORMATS = { markdown: "md", bbcode: "bb", plain: "txt", url: "txt", id: "txt" };
 
@@ -166,6 +198,9 @@
 .gpt-copy .gpt-sep, .gpt-lang .gpt-sep { width: 1px; height: 50%; background: rgba(255,255,255,.5); flex: none; pointer-events: none; }
 /* No fixed width: the button is only as wide as the current tag (md is narrower than html) */
 .gpt-copy .gpt-fmt, .gpt-lang .gpt-fmt { font-size: calc(var(--gpt-fs) - 2px); letter-spacing: .2px; pointer-events: none; }
+/* A visible scrollbar on screenshot galleries (setting scrollbar-width overrides Play's ::-webkit-scrollbar { display: none }) */
+html[data-gpt-gallery="on"] [data-gpt-scrollbar] { scrollbar-width: thin !important; scrollbar-color: rgba(95,99,104,.55) transparent; padding-bottom: 6px; }
+html[data-gpt-gallery="on"][data-gpt-theme="dark"] [data-gpt-scrollbar] { scrollbar-color: rgba(189,193,198,.5) transparent; }
 /* Buttons placed before Install, and a deliberate line break */
 .gpt-bar.gpt-inline.gpt-pre { margin: 0 8px 0 0; }
 .gpt-bar.gpt-below.gpt-pre, .gpt-bar.gpt-stack.gpt-pre { margin: 12px 0; }
@@ -177,7 +212,7 @@
 #gpt-lang { width: 268px; }
 #gpt-lang .gpt-list { display: grid; grid-template-columns: 1fr 1fr; gap: 0 6px; padding: 0 12px 4px; }
 #gpt-lang .gpt-col { min-width: 0; }
-#gpt-lang .gpt-sub { padding-left: 4px; }
+#gpt-lang .gpt-col .gpt-sub { padding-left: 4px; }
 .gpt-wheel { position: relative; height: 130px; overflow: hidden; outline: none; cursor: default; user-select: none; touch-action: none;
     -webkit-mask-image: linear-gradient(transparent, #000 32%, #000 68%, transparent); mask-image: linear-gradient(transparent, #000 32%, #000 68%, transparent); }
 .gpt-wheel::before { content: ""; position: absolute; left: 0; right: 0; top: 52px; height: 26px; border-radius: 6px; background: rgba(1,135,95,.12); pointer-events: none; }
@@ -185,7 +220,7 @@
 .gpt-wheel-in { position: absolute; left: 0; right: 0; top: 0; transition: transform .14s ease-out; }
 .gpt-wi { height: 26px; line-height: 26px; padding: 0 8px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .gpt-wi.gpt-sel { color: var(--gpt-accent); font-weight: 500; }
-#gpt-lang .gpt-apply { display: block; margin: 4px 12px 8px auto; padding: 6px 16px; border: 0; border-radius: 16px; background: var(--gpt-accent); color: #fff;
+#gpt-lang .gpt-apply { display: block; box-sizing: border-box; min-width: 0; min-height: 0; margin: 4px 12px 8px auto; padding: 6px 18px; border: 0; border-radius: 16px; background: var(--gpt-accent); color: #fff;
     font: 500 13px/20px "Google Sans", Roboto, Arial, sans-serif; cursor: pointer; }
 #gpt-lang .gpt-apply:hover { filter: brightness(.9); }
 html[data-gpt-theme="dark"] #gpt-lang .gpt-apply { color: #202124; }
@@ -215,7 +250,7 @@ html[data-gpt-theme="dark"] .gpt-wheel::before { background: rgba(129,201,149,.1
 .gpt-panel .gpt-hint { padding-top: 10px; }
 /* Title row with a Reset button on the right */
 .gpt-panel .gpt-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.gpt-panel .gpt-reset { margin: -4px -8px -4px 0; padding: 4px 8px; border: 0; border-radius: 6px; background: none; color: var(--gpt-accent);
+.gpt-panel .gpt-reset { box-sizing: border-box; min-width: 0; min-height: 0; margin: -4px -8px -4px 0; padding: 4px 8px; border: 0; border-radius: 6px; background: none; color: var(--gpt-accent);
     font: 500 13px/20px "Google Sans", Roboto, Arial, sans-serif; cursor: pointer; }
 .gpt-panel .gpt-reset:hover, .gpt-panel .gpt-reset:focus-visible { background: rgba(1,135,95,.08); outline: none; }
 /* What to copy: one line of small chips, ticked and dragged sideways (the whole chip is the handle) */
@@ -517,7 +552,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         // The developer link only exists on the app's own page.
         const devEl = detailsPkg() ? [...document.querySelectorAll('a[href*="/store/apps/dev"]')].find(visible) : null;
         const dev = devEl ? devEl.textContent.trim() : "";
-        const info = { name: title, dev, pkg, url: `https://play.google.com/store/apps/details?id=${enc(pkg)}` };
+        const info = { name: title, dev, pkg, url: `https://play.google.com/store/apps/details?id=${enc(pkg)}`, ld: appData(pkg) };
         // Ticked fields in order, skipping empty ones (no developer on search results).
         let parts = fieldsOrdered().filter(fieldOn).map(f => ({ key: f.key, v: info[f.key] })).filter(p => p.v);
         if (!parts.length) parts = [{ key: "pkg", v: pkg }];
@@ -562,9 +597,21 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
 
     // Add, move or remove the bars so there is exactly one after each Install
     // button on the page. Safe to call repeatedly.
+    // Screenshot galleries scroll sideways but Play hides their scrollbar; show a thin one.
+    function markGalleries() {
+        const on = enabled.gallery === false ? "off" : "on";
+        if (document.documentElement.dataset.gptGallery !== on) document.documentElement.dataset.gptGallery = on;
+        if (on === "off") return;
+        for (const img of document.querySelectorAll('img[role="button"][src*="play-lh.googleusercontent.com"]')) {
+            const list = img.closest('[role="list"]');
+            if (list && !list.hasAttribute("data-gpt-scrollbar")) list.setAttribute("data-gpt-scrollbar", "");
+        }
+    }
+
     function update() {
         syncTheme();
         unwrapRedirects();
+        markGalleries();
         const page = location.pathname + location.search;
         if (page !== lastPage) { lastPage = page; floatSince = 0; }
         const existing = [...document.querySelectorAll(".gpt-bar")];
@@ -859,7 +906,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
     function toggleSettings(anchor) {
         if (document.getElementById("gpt-settings")) { closeSettings(); return; }
         closeSettings();
-        const resetKeys = ["order", "unwrap", ...LINKS.map(l => l.key)];
+        const resetKeys = ["order", "unwrap", "gallery", ...LINKS.map(l => l.key)];
         const { panel, list } = newPanel("gpt-settings", "Play Store Tweaks", "Show next to Install · drag to reorder", resetKeys, () => {
             // The bars are rebuilt, so reopen on the new gear of the same app.
             const pkg = anchor && anchor.closest(".gpt-bar") ? anchor.closest(".gpt-bar").dataset.key.split("|")[0] : "";
@@ -901,10 +948,11 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
             return label;
         };
         const uLabel = option("unwrap", "Skip Google redirect links");
+        const gLabel = option("gallery", "Scrollbar on screenshot galleries");
         const tip = document.createElement("div");
         tip.className = "gpt-sub gpt-hint";
-        tip.textContent = "Tip: right-click Copy to choose what it copies.";
-        panel.append(sub2, uLabel, tip);
+        tip.textContent = "Tip: right-click Copy or the globe for more options.";
+        panel.append(sub2, uLabel, gLabel, tip);
         document.body.append(panel);
         placePanel(panel, anchor);
     }

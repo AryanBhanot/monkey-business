@@ -8,15 +8,12 @@ caching or heavy page parsing goes in the extension version instead.
 Remaining work, roughly in the order it is wanted. Once these are done the script is finished
 and only gets bug fixes.
 
-- **Horizontal scrollbar on screenshot galleries.**
 - **More mirror buttons, as plain links.** APKPure, APKCombo, Aptoide, APK-DL and similar. Each
   just opens the site's search or app page (no link extraction, no captcha handling), as one more
   entry in `LINKS`, so it is toggleable and draggable like the others. Each site's search URL
   must be checked in a browser before adding. APKPure and APKCombo were unreachable from the
   test network (likely an ISP block), and Aptoide's site search returned no results, even for
   WhatsApp.
-- **Optional: "forum post" Copy format.** Only if it can be built from what is already on the
-  page (name, developer, link). If it needs a full page scrape, it moves to the extension.
 
 ## Extension
 
