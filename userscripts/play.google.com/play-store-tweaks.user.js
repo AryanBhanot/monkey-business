@@ -5,7 +5,7 @@
 // @author      AryanBhanot
 // @icon        https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/icons/play-store-tweaks.png?v=0.10.0
 // @match       https://play.google.com/store/*
-// @version     0.14.0
+// @version     0.15.0
 // @license     MIT
 // @homepageURL https://github.com/AryanBhanot/monkey-business
 // @supportURL  https://github.com/AryanBhanot/monkey-business/issues
@@ -26,9 +26,10 @@
     // One entry per button: short label on the button, full name in the
     // tooltip and settings. `url` gets { pkg, title }. Nothing is sent anywhere
     // until you click a button.
-    // Default order; the user can drag them into any order in settings.
+    // Default order; the user can drag them into any order in settings, together with
+    // Google's own Install, Share and Wishlist buttons (`google`) and any number of line breaks.
     const LINKS = [
-        { key: "install", name: "Install button", color: "#01875f", install: true, first: true }, // Google's own button: only its place can change
+        { key: "install", name: "Install", color: "#01875f", google: true, fixed: true, first: true }, // can be moved, never hidden
         { key: "beta", label: "Beta", name: "Beta testing page", color: "#8e24aa", url: c => `https://play.google.com/apps/testing/${enc(c.pkg)}` },
         { key: "copy", name: "Copy app info", color: "#455a64", copy: true },
         { key: "apkmirror", label: "APKM", name: "APKMirror", color: "#ff8b14", url: c => `https://www.apkmirror.com/?post_type=app_release&searchtype=apk&s=${enc(c.pkg)}` },
@@ -36,8 +37,12 @@
         { key: "appbrain", label: "AB", name: "AppBrain", color: "#3f51b5", url: c => `https://www.appbrain.com/app/${enc(c.pkg)}` },
         { key: "exodus", label: "Exodus", name: "Exodus Privacy report", color: "#1565c0", url: c => `https://reports.exodus-privacy.eu.org/en/search/${enc(c.pkg)}/` },
         { key: "lang", name: "Language & region", color: "#00796b", lang: true }, // opens a menu, not a link
-        { key: "br", name: "Line break", color: "#9aa0a6", br: true, off: true }, // splits the buttons into two lines; off until ticked
+        { key: "share", name: "Share", color: "#5f6368", google: true },
+        { key: "wishlist", name: "Wishlist", color: "#5f6368", google: true },
     ];
+    // Line breaks live in the saved order as "br1", "br2", ...
+    const isBreakKey = k => /^br\d+$/.test(k);
+    const breakItem = key => ({ key, br: true, name: "Line break" });
 
     // What "Copy" puts on the clipboard: the ticked fields, in the user's order, written
     // out in the chosen format. `key` is the short tag shown on the button.
@@ -121,8 +126,15 @@
         delete enabled.order;
         save(enabled);
     }
+    // 0.13 had a single "br" entry with an on/off tick; it becomes a real line break (or goes).
+    if (Array.isArray(enabled.order) && enabled.order.includes("br")) {
+        const on = enabled.br === true;
+        enabled = Object.assign({}, enabled, { order: enabled.order.flatMap(k => (k === "br" ? (on ? ["br1"] : []) : [k])) });
+        delete enabled.br;
+        save(enabled);
+    }
     const setOpts = o => { enabled = Object.assign({}, enabled, o); save(enabled); };
-    const isOn = l => (l.off ? enabled[l.key] === true : enabled[l.key] !== false); // on by default, except the line break
+    const isOn = l => l.fixed || enabled[l.key] !== false; // everything is on by default
     let rev = 0; // bumped on every settings change so the bars are rebuilt
     // `all` in the order saved under `orderKey` (anything never ordered goes last, in default order).
     function sortBy(all, orderKey) {
@@ -132,7 +144,20 @@
         return all.slice().sort((a, b) => pos(a) - pos(b));
     }
     const offIn = offKey => x => !(Array.isArray(enabled[offKey]) && enabled[offKey].includes(x.key));
-    const ordered = () => sortBy(LINKS, "order");
+    // Buttons and line breaks in the saved order. Anything never ordered goes last in default
+    // order, except Install (`first`), which was always first.
+    function ordered() {
+        const saved = Array.isArray(enabled.order) ? enabled.order : [];
+        const out = [], seen = new Set();
+        for (const k of saved) {
+            if (seen.has(k)) continue;
+            const l = isBreakKey(k) ? breakItem(k) : LINKS.find(x => x.key === k);
+            if (l) { out.push(l); seen.add(k); }
+        }
+        for (const l of LINKS) if (!seen.has(l.key)) { if (l.first) out.unshift(l); else out.push(l); }
+        return out;
+    }
+    const setOrder = keys => { enabled = Object.assign({}, enabled, { order: keys }); save(enabled); rev++; update(); };
     // Formats in the user's order, and the ones left ticked (the ones scrolling over Copy cycles through).
     const fmtOrdered = () => sortBy(FORMATS, "fmtOrder");
     const fmtOn = offIn("fmtOff");
@@ -167,12 +192,26 @@
 .gpt-bar { --gpt-h: 36px; --gpt-r: 8px; --gpt-fs: 14px; --gpt-ls: .15px;
     --gpt-accent: #01875f; --gpt-outline: #747775; --gpt-hover: rgba(1,135,95,.08);
     position: relative; z-index: 3; /* above the hero-banner overlay on apps with a trailer */
-    display: inline-flex; flex: 0 1 auto; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 0 8px; min-width: 0; }
-/* Share has its own ~16px left padding; trim so the gaps on both sides of the bar are equal */
-.gpt-bar.gpt-inline { margin-right: -8px; }
-.gpt-bar.gpt-stack { display: flex; justify-content: center; gap: 6px; margin: 12px 0; }
+    display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
+/* The slice: Google's own button row. Our bar dissolves into it (display: contents) and every
+   item, Google's included, is placed with CSS order; a line break is a full-width empty item.
+   Google's elements are never moved in the page. */
+.gpt-slice { flex-wrap: wrap !important; align-items: center !important; column-gap: 0 !important; row-gap: 8px !important; }
+/* Spacing is a right margin on the items we know (a gap would also pad Google's invisible helpers) */
+.gpt-slice .gpt-other { margin: 0 !important; }
+.gpt-slice .gpt-item { margin: 0 8px 0 0 !important; }
+.gpt-bar.gpt-inline > * { margin: 0 8px 0 0; }
+.gpt-bar.gpt-inline > .gpt-break { margin: 0; }
+.gpt-contents { display: contents !important; }
+.gpt-hidden { display: none !important; }
+.gpt-bar.gpt-inline { display: contents; }
+.gpt-bar.gpt-inline > * { position: relative; z-index: 3; }
+.gpt-break { flex: 0 0 100%; height: 0; }
+/* Phones (Install full width) and the corner fallback: our buttons only, line by line */
+.gpt-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.gpt-bar.gpt-stack { align-items: center; margin: 12px 0; }
+.gpt-bar.gpt-stack .gpt-line { justify-content: center; gap: 6px; }
 .gpt-bar.gpt-stack .gpt-btn { padding: 0 10px; } /* phones: tighter */
-.gpt-bar.gpt-below { display: flex; margin: 12px 0 0; }
 .gpt-bar.gpt-float { position: fixed; right: 16px; bottom: 16px; z-index: 2147483000; margin: 0; padding: 8px; background: #fff;
     border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.3); }
 .gpt-btn, .gpt-gear { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; height: var(--gpt-h);
@@ -201,13 +240,6 @@
 /* A visible scrollbar on screenshot galleries (setting scrollbar-width overrides Play's ::-webkit-scrollbar { display: none }) */
 html[data-gpt-gallery="on"] [data-gpt-scrollbar] { scrollbar-width: thin !important; scrollbar-color: rgba(95,99,104,.55) transparent; padding-bottom: 6px; }
 html[data-gpt-gallery="on"][data-gpt-theme="dark"] [data-gpt-scrollbar] { scrollbar-color: rgba(189,193,198,.5) transparent; }
-/* Buttons placed before Install, and a deliberate line break */
-.gpt-bar.gpt-inline.gpt-pre { margin: 0 8px 0 0; }
-.gpt-bar.gpt-below.gpt-pre, .gpt-bar.gpt-stack.gpt-pre { margin: 12px 0; }
-.gpt-bar.gpt-multi { flex-direction: column; align-items: flex-start; gap: 8px; }
-.gpt-bar.gpt-multi.gpt-stack, .gpt-bar.gpt-multi.gpt-float { align-items: center; }
-.gpt-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.gpt-bar.gpt-stack .gpt-line { justify-content: center; gap: 6px; }
 /* Language & region menu: two small wheels (language, country); the middle row is the choice */
 #gpt-lang { width: 268px; }
 #gpt-lang .gpt-list { display: grid; grid-template-columns: 1fr 1fr; gap: 0 6px; padding: 0 12px 4px; }
@@ -275,6 +307,24 @@ html[data-gpt-theme="dark"] .gpt-panel .gpt-row label:hover { background: none; 
 .gpt-panel label:hover { background: rgba(1,135,95,.08); }
 .gpt-panel input { width: 18px; height: 18px; margin: 0; accent-color: var(--gpt-accent); cursor: pointer; }
 .gpt-panel .gpt-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+/* Play styles every button (min-size 40px, content-box); undo that inside our menus */
+.gpt-panel button { box-sizing: border-box; min-width: 0; min-height: 0; margin: 0; font: inherit; }
+.gpt-panel .gpt-note { margin-left: auto; color: var(--gpt-sub); font-size: 12px; }
+.gpt-panel input:disabled { opacity: .45; cursor: default; }
+/* Line-break rows: a dashed rule with its name, a remove button and the handle */
+.gpt-panel .gpt-brline { flex: 1; display: flex; align-items: center; gap: 10px; padding: 7px 4px 7px 20px; color: var(--gpt-sub); font-size: 12px; }
+.gpt-panel .gpt-brline::before, .gpt-panel .gpt-brline::after { content: ""; flex: 1; border-top: 1px dashed var(--gpt-line2); }
+.gpt-panel .gpt-x { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 6px;
+    background: none; color: var(--gpt-sub); cursor: pointer; }
+.gpt-panel .gpt-x:hover, .gpt-panel .gpt-x:focus-visible { background: rgba(60,64,67,.12); color: var(--gpt-fg); outline: none; }
+.gpt-panel .gpt-x svg { width: 18px; height: 18px; fill: currentColor; pointer-events: none; }
+.gpt-panel .gpt-add { display: block; margin: 4px 12px 0; padding: 4px 8px; border: 0; border-radius: 6px; background: none; color: var(--gpt-accent);
+    font: 500 13px/20px "Google Sans", Roboto, Arial, sans-serif; cursor: pointer; }
+.gpt-panel .gpt-add:hover, .gpt-panel .gpt-add:focus-visible { background: rgba(1,135,95,.08); outline: none; }
+.gpt-panel .gpt-row.gpt-flash { animation: gpt-flash 1.4s ease-out; }
+@keyframes gpt-flash { from { background: rgba(1,135,95,.25); } to { background: transparent; } }
+html[data-gpt-theme="dark"] .gpt-panel .gpt-x:hover { background: rgba(255,255,255,.1); }
+html[data-gpt-theme="dark"] .gpt-panel .gpt-add:hover { background: rgba(129,201,149,.12); }
 html[data-gpt-theme="dark"] .gpt-bar { --gpt-accent: #81c995; --gpt-outline: #8e918f; --gpt-hover: rgba(129,201,149,.12); }
 html[data-gpt-theme="dark"] .gpt-bar.gpt-float { background: #2d2f31; }
 html[data-gpt-theme="dark"] .gpt-gear:active { background: rgba(129,201,149,.2); }
@@ -373,7 +423,9 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         const sr = start.getBoundingClientRect();
         let node = start, stack = null;
         for (let i = 0; node && node.parentElement && node.parentElement !== document.body && i < 15; i++, node = node.parentElement) {
-            const p = node.parentElement, cs = getComputedStyle(p), pr = p.getBoundingClientRect();
+            const p = node.parentElement;
+            if (p.classList.contains("gpt-slice")) return { node, mode: "inline" }; // already ours (it may wrap now)
+            const cs = getComputedStyle(p), pr = p.getBoundingClientRect();
             const kids = [...p.children].filter(c => visible(c) && !c.classList.contains("gpt-bar"));
             // A real button row has all of Google's items on one line next to the
             // button. Page-level layout rows (whose columns start far above, or
@@ -388,18 +440,6 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         return stack;
     }
 
-    // If the bar doesn't fit beside Install (it wrapped), put it on its own line
-    // below the whole button row instead.
-    const tooNarrow = new Set();
-    function belowRow(node) {
-        let r = node.parentElement;
-        while (r.parentElement && r.parentElement !== document.body) {
-            const cs = getComputedStyle(r.parentElement);
-            if (!(/flex/.test(cs.display) && /^row/.test(cs.flexDirection))) break;
-            r = r.parentElement;
-        }
-        return { node: r, mode: "below" };
-    }
 
     // ---- Button bar -----------------------------------------------------------------
     // Material icons
@@ -429,50 +469,100 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         return svg;
     }
 
-    // The bar after Install. Buttons the user dragged above Install go in a second bar before
-    // it (`bar._pre`), unless there is no Install button to anchor to (`merge`): then one bar.
-    // A ticked "Line break" splits a bar into lines.
-    function buildBar(t, title, key, merge) {
+    // One bar per app. Inline (next to Install in Google's button row), the bar dissolves into
+    // that row and arrange() places every item with CSS order. Elsewhere (phones, where Install
+    // is full width, or the corner fallback) it holds only our buttons, line by line.
+    function buildBar(t, title, key, inline) {
+        const bar = document.createElement("div");
+        bar.className = "gpt-bar";
+        bar.dataset.key = key;
+        // Copy Google's own button metrics so ours match.
         const cs = getComputedStyle(t.btn), h = t.btn.getBoundingClientRect().height;
-        const mk = k => {
-            const bar = document.createElement("div");
-            bar.className = "gpt-bar";
-            bar.dataset.key = k;
-            // Copy Google's own button metrics so ours match.
-            if (h >= 24 && h <= 72) bar.style.setProperty("--gpt-h", Math.round(h) + "px");
-            if (cs.borderRadius && !/%/.test(cs.borderRadius)) bar.style.setProperty("--gpt-r", cs.borderRadius.split(" ")[0]);
-            if (parseFloat(cs.fontSize) > 0) bar.style.setProperty("--gpt-fs", cs.fontSize);
-            if (cs.letterSpacing && cs.letterSpacing !== "normal") bar.style.setProperty("--gpt-ls", cs.letterSpacing);
-            return bar;
-        };
-        const all = ordered(), at = all.findIndex(l => l.install);
-        const before = merge ? all.filter(l => !l.install) : all.slice(0, Math.max(at, 0));
-        const after = merge ? [] : all.slice(at + 1);
-        const bar = mk(key);
-        bar.append(...pieces(bar, merge ? before : after, t, title, true));
-        bar._pre = null;
-        if (!merge && before.some(l => isOn(l) && !l.br)) {
-            const pre = mk(key + "|pre");
-            pre.classList.add("gpt-pre");
-            pre.append(...pieces(pre, before, t, title, false));
-            bar._pre = pre;
+        if (h >= 24 && h <= 72) bar.style.setProperty("--gpt-h", Math.round(h) + "px");
+        if (cs.borderRadius && !/%/.test(cs.borderRadius)) bar.style.setProperty("--gpt-r", cs.borderRadius.split(" ")[0]);
+        if (parseFloat(cs.fontSize) > 0) bar.style.setProperty("--gpt-fs", cs.fontSize);
+        if (cs.letterSpacing && cs.letterSpacing !== "normal") bar.style.setProperty("--gpt-ls", cs.letterSpacing);
+        if (inline) {
+            for (const l of ordered()) {
+                if (l.br) { const b = document.createElement("div"); b.className = "gpt-break"; b.dataset.k = l.key; bar.append(b); }
+                else if (!l.google && isOn(l)) bar.append(button(bar, l, t, title));
+            }
+            const gear = gearButton();
+            gear.style.order = "99999"; // always last
+            bar.append(gear);
+        } else {
+            // Our buttons only, split into lines at the breaks (empty lines dropped).
+            const lines = [[]];
+            for (const l of ordered()) {
+                if (l.br) { if (lines[lines.length - 1].length) lines.push([]); }
+                else if (!l.google && isOn(l)) lines[lines.length - 1].push(button(bar, l, t, title));
+            }
+            lines[lines.length - 1].push(gearButton());
+            for (const x of lines) if (x.length) { const d = document.createElement("div"); d.className = "gpt-line"; d.append(...x); bar.append(d); }
         }
         return bar;
     }
 
-    // The buttons for `list` (plus the gear if asked), as one flat run, or as `.gpt-line`s
-    // when the list holds a ticked line break (which then makes the bar a column).
-    function pieces(bar, list, t, title, gear) {
-        const lines = [[]];
-        for (const l of list.filter(isOn)) {
-            if (l.br) { if (lines[lines.length - 1].length) lines.push([]); }
-            else if (!l.install) lines[lines.length - 1].push(button(bar, l, t, title));
+    // Google's items in the button row `row`: Install (the wrapper `installNode`), Share (found
+    // by its icon, so any language works), Wishlist (tied to the app's ID) and anything else.
+    // A wrapper holding several of them (Share + Wishlist) is dissolved so each is its own item.
+    const SHARE_ICON = 'path[d^="M18 16.08"]';
+    function googleItems(row, installNode, bar, pkg) {
+        const found = { install: installNode }, other = [];
+        for (const c of row.children) {
+            if (c === installNode || c === bar || c.classList.contains("gpt-bar")) continue;
+            const groups = [...c.children].filter(x => x.querySelector("button"));
+            if (!c.classList.contains("gpt-contents") && groups.length > 1) c.classList.add("gpt-contents");
+            for (const p of c.classList.contains("gpt-contents") ? [...c.children] : [c]) {
+                const kind = p.querySelector(SHARE_ICON) ? "share"
+                    : p.querySelector("button") && (p.matches(`[data-p*='"${pkg}"']`) || p.querySelector(`[data-p*='"${pkg}"']`)) ? "wishlist" : null;
+                if (kind && !found[kind]) found[kind] = p; else other.push(p);
+            }
         }
-        if (gear) lines[lines.length - 1].push(gearButton());
-        const used = lines.filter(x => x.length);
-        if (used.length < 2) return used[0] || [];
-        bar.classList.add("gpt-multi");
-        return used.map(x => { const d = document.createElement("div"); d.className = "gpt-line"; d.append(...x); return d; });
+        return { found, other };
+    }
+
+    // Put every item of the slice in the saved order. Line breaks that would make an empty
+    // line (at the start or end, or twice in a row) are left out.
+    function arrange(row, installNode, bar, pkg) {
+        if (!row.classList.contains("gpt-slice")) row.classList.add("gpt-slice");
+        const { found, other } = googleItems(row, installNode, bar, pkg);
+        const ours = new Map([...bar.children].filter(e => e.dataset.k).map(e => [e.dataset.k, e]));
+        const seq = [];
+        for (const l of ordered()) {
+            const el = l.google ? found[l.key] : ours.get(l.key);
+            if (!el) continue;
+            if (l.google) { const show = isOn(l); el.classList.toggle("gpt-hidden", !show); if (!show) continue; }
+            seq.push({ l, el });
+        }
+        const kept = [];
+        for (const s of seq) {
+            const redundant = s.l.br && (!kept.length || kept[kept.length - 1].l.br);
+            if (redundant) s.el.classList.add("gpt-hidden"); else kept.push(s);
+        }
+        while (kept.length && kept[kept.length - 1].l.br) kept.pop().el.classList.add("gpt-hidden");
+        const setOrder = (el, n) => { if (el.style.order !== String(n)) el.style.order = String(n); };
+        kept.forEach((s, i) => { if (s.l.br) s.el.classList.remove("gpt-hidden"); setOrder(s.el, i * 10); });
+        for (const k of ["install", "share", "wishlist"]) if (found[k] && !found[k].classList.contains("gpt-item")) found[k].classList.add("gpt-item");
+        const at = kept.findIndex(s => s.l.key === "install");
+        // Unknown Google items stay next to Install. Their own margins were for Google's layout
+        // (an empty helper there carries a 69px one), so they get ours, or none while empty.
+        for (const el of other) {
+            setOrder(el, Math.max(at, 0) * 10 + 5);
+            if (!el.classList.contains("gpt-other")) el.classList.add("gpt-other");
+            const r = el.getBoundingClientRect();
+            el.classList.toggle("gpt-item", r.width > 0 && r.height > 0);
+        }
+        // Don't run under the big app icon that sits to the right of the header on wide pages.
+        const rr = row.getBoundingClientRect(), right = row.parentElement.getBoundingClientRect().right; // the parent: our own max-width must not change the test
+        let limit = 0;
+        for (const img of document.querySelectorAll('img[src*="play-lh.googleusercontent.com"]')) {
+            if (row.contains(img) || !visible(img)) continue;
+            const b = img.getBoundingClientRect();
+            if (b.width >= 96 && b.left > rr.left + 120 && b.left < right &&b.top < rr.bottom + 40 && b.bottom > rr.top - 40) limit = limit ? Math.min(limit, b.left) : b.left;
+        }
+        const mw = limit ? Math.floor(limit - rr.left - 24) + "px" : "";
+        if (row.style.maxWidth !== mw) row.style.maxWidth = mw;
     }
 
     function gearButton() {
@@ -595,8 +685,6 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         }
     }
 
-    // Add, move or remove the bars so there is exactly one after each Install
-    // button on the page. Safe to call repeatedly.
     // Screenshot galleries scroll sideways but Play hides their scrollbar; show a thin one.
     function markGalleries() {
         const on = enabled.gallery === false ? "off" : "on";
@@ -608,6 +696,8 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         }
     }
 
+    // Add, update or remove the bars so there is exactly one per Install button on the
+    // page. Safe to call repeatedly.
     function update() {
         syncTheme();
         unwrapRedirects();
@@ -620,10 +710,9 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
 
         const jobs = targets.map(t => {
             const title = titleFor(t) || t.pkg;
-            const fitKey = [t.pkg, title, rev, window.innerWidth].join("|");
-            let slot = slotFrom(t.el);
-            if (slot && slot.mode === "inline" && tooNarrow.has(fitKey)) slot = belowRow(slot.node);
-            return { t, title, fitKey, slot, key: t.pkg + "|" + rev + (slot ? "" : "|f") };
+            const slot = slotFrom(t.el);
+            const mode = slot ? slot.mode : "float";
+            return { t, title, slot, mode, key: [t.pkg, rev, mode].join("|") };
         });
 
         // No install button yet: the page may still be rendering, so wait before floating.
@@ -634,41 +723,28 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
                 schedule(500);
                 return;
             }
-            jobs.push({ t: { pkg: detailsPkg(), btn: document.body }, title: getTitleSafe(), slot: null, key: detailsPkg() + "|" + rev + "|f", fitKey: "" });
+            jobs.push({ t: { pkg: detailsPkg(), btn: document.body }, title: getTitleSafe(), slot: null, mode: "float", key: [detailsPkg(), rev, "float"].join("|") });
         } else floatSince = 0;
 
-        // Bars are updated in place (title, layout mode, position) and only rebuilt when
-        // the app or the settings change, so nothing flashes while the page settles.
-        const MODES = ["gpt-inline", "gpt-stack", "gpt-below", "gpt-float"];
+        // Bars are updated in place (title, position) and only rebuilt when the app, the
+        // layout mode or the settings change, so nothing flashes while the page settles.
         for (const j of jobs) {
             let bar = existing.find(b => b.dataset.key === j.key && !keep.has(b));
-            const mode = "gpt-" + (j.slot ? j.slot.mode : "float");
             if (!bar) {
-                bar = buildBar(j.t, j.title, j.key, !j.slot);
+                bar = buildBar(j.t, j.title, j.key, j.mode === "inline");
+                bar.classList.add("gpt-" + j.mode);
                 bar.dataset.title = j.title;
-                if (bar._pre) bar._pre.dataset.title = j.title;
             } else if (bar.dataset.title !== j.title) {
                 bar.dataset.title = j.title;
-                if (bar._pre) bar._pre.dataset.title = j.title;
-                for (const b of [bar, bar._pre]) if (b) for (const a of b.querySelectorAll("a.gpt-btn")) a.href = a._link.url({ pkg: j.t.pkg, title: j.title });
+                for (const a of bar.querySelectorAll("a.gpt-btn")) a.href = a._link.url({ pkg: j.t.pkg, title: j.title });
             }
             keep.add(bar);
-            for (const b of [bar, bar._pre]) if (b && !b.classList.contains(mode)) { b.classList.remove(...MODES); b.classList.add(mode); }
-            if (j.slot) { if (bar.previousElementSibling !== j.slot.node || !bar.isConnected) j.slot.node.after(bar); }
+            if (j.mode === "inline") {
+                const row = j.slot.node.parentElement;
+                if (bar.parentElement !== row) row.append(bar);
+                arrange(row, j.slot.node, bar, j.t.pkg);
+            } else if (j.slot) { if (bar.previousElementSibling !== j.slot.node || !bar.isConnected) j.slot.node.after(bar); }
             else if (bar.parentElement !== document.body) document.body.append(bar);
-            // Buttons dragged above Install sit in their own bar right before it.
-            if (bar._pre) {
-                keep.add(bar._pre);
-                if (j.slot && (bar._pre.nextElementSibling !== j.slot.node || !bar._pre.isConnected)) j.slot.node.before(bar._pre);
-            }
-            // Wrapped onto more than one line? Then it didn't fit; move it below (not for a deliberate line break).
-            const wrapped = b => {
-                const n = b.querySelectorAll(".gpt-line").length || 1, one = b.querySelector(".gpt-btn, .gpt-gear").offsetHeight;
-                return b.offsetHeight > n * one + (n - 1) * 8 + 12;
-            };
-            if (j.slot && j.slot.mode === "inline" && (wrapped(bar) || (bar._pre && wrapped(bar._pre)))) {
-                tooNarrow.add(j.fitKey); schedule(0);
-            }
         }
         for (const b of existing) if (!keep.has(b)) b.remove();
     }
@@ -867,12 +943,18 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         panel._anchor = anchor;
         const w = panel.offsetWidth, h = panel.offsetHeight;
         if (!anchor || !anchor.isConnected) { panel.style.right = "16px"; panel.style.bottom = "16px"; return; }
-        const r = anchor.getBoundingClientRect();
-        const left = Math.min(Math.max(8, alignLeft ? r.left : r.right - w), window.innerWidth - w - 8);
-        // Below the anchor if it fits, otherwise above. Overlap by 2px so there is no gap to cross.
-        const top = r.bottom + h + 8 <= window.innerHeight ? r.bottom - 2 : Math.max(8, r.top - h + 2);
+        const r = anchor.getBoundingClientRect(), W = window.innerWidth, H = window.innerHeight;
+        let left = Math.min(Math.max(8, alignLeft ? r.left : r.right - w), W - w - 8), top;
+        // Below the anchor if it fits, else above (overlapping by 2px so there is no gap to
+        // cross), else beside it, so the panel never covers what opened it.
+        if (r.bottom + h + 8 <= H) top = r.bottom - 2;
+        else if (r.top - h - 8 >= 0) top = r.top - h + 2;
+        else {
+            top = Math.min(Math.max(8, r.top + r.height / 2 - h / 2), H - h - 8);
+            left = r.right + w + 8 <= W ? r.right - 2 : Math.max(8, r.left - w + 2);
+        }
         panel.style.left = left + "px";
-        panel.style.top = top + "px";
+        panel.style.top = Math.max(8, top) + "px";
     }
     const subhead = text => { const s = document.createElement("div"); s.className = "gpt-sub"; s.textContent = text; return s; };
     // A panel with a title, a Reset button (which forgets `resetKeys` and calls `afterReset`),
@@ -907,35 +989,65 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         if (document.getElementById("gpt-settings")) { closeSettings(); return; }
         closeSettings();
         const resetKeys = ["order", "unwrap", "gallery", ...LINKS.map(l => l.key)];
-        const { panel, list } = newPanel("gpt-settings", "Play Store Tweaks", "Show next to Install · drag to reorder", resetKeys, () => {
+        const { panel, list } = newPanel("gpt-settings", "Play Store Tweaks", "Drag to arrange · untick to hide", resetKeys, () => {
             // The bars are rebuilt, so reopen on the new gear of the same app.
             const pkg = anchor && anchor.closest(".gpt-bar") ? anchor.closest(".gpt-bar").dataset.key.split("|")[0] : "";
             rev++; update(); closeSettings();
             const bar = [...document.querySelectorAll(".gpt-bar")].find(b => b.dataset.key.split("|")[0] === pkg);
             toggleSettings(bar ? bar.querySelector(".gpt-gear") : document.querySelector(".gpt-gear"));
         });
-        const commit = keys => {
-            if (JSON.stringify(keys) === JSON.stringify(ordered().map(l => l.key))) return;
-            enabled = Object.assign({}, enabled, { order: keys });
-            save(enabled); rev++; update();
-        };
-        for (const l of ordered()) {
+        const commit = keys => { if (JSON.stringify(keys) !== JSON.stringify(ordered().map(l => l.key))) setOrder(keys); };
+        // One row per item: [tick · dot · name · "Google" ...... handle], or for a line break
+        // [- - - Line break - - -  ×  handle]. Every row drags, from anywhere on it.
+        const rowFor = l => {
             const row = document.createElement("div");
             row.className = "gpt-row";
             row.dataset.key = l.key;
+            if (l.br) {
+                row.classList.add("gpt-brrow");
+                const line = document.createElement("span");
+                line.className = "gpt-brline";
+                line.textContent = "Line break";
+                const x = document.createElement("button");
+                x.type = "button";
+                x.className = "gpt-x";
+                x.title = "Remove this line break";
+                x.setAttribute("aria-label", "Remove line break");
+                x.append(icon(ICON_FAIL));
+                x.addEventListener("click", e => { e.preventDefault(); flip(list, () => row.remove(), null); commit(keysOf(list)); });
+                row.append(line, x, makeHandle(row, list, "line break", commit));
+                return row;
+            }
             const label = document.createElement("label");
             const box = document.createElement("input");
             box.type = "checkbox";
-            box.checked = isOn(l) || !!l.install;
-            box.disabled = !!l.install; // Install is Google's: it can be moved but not hidden
-            box.addEventListener("change", () => { enabled = Object.assign({}, enabled, { [l.key]: box.checked }); save(enabled); rev++; update(); });
+            box.checked = isOn(l);
+            box.disabled = !!l.fixed;
+            if (l.fixed) label.title = "Google's Install button can be moved but not hidden";
+            box.addEventListener("change", () => { setOpts({ [l.key]: box.checked }); rev++; update(); });
             const dot = document.createElement("span");
             dot.className = "gpt-dot";
             dot.style.background = l.color;
             label.append(box, dot, l.name);
+            if (l.google) { const g = document.createElement("span"); g.className = "gpt-note"; g.textContent = "Google"; label.append(g); }
             row.append(label, makeHandle(row, list, l.name, commit));
-            list.append(row);
-        }
+            return row;
+        };
+        for (const l of ordered()) list.append(rowFor(l));
+        // New line breaks go in the middle, so the effect shows at once; then drag it into place.
+        const add = document.createElement("button");
+        add.type = "button";
+        add.className = "gpt-add";
+        add.textContent = "+ Add line break";
+        add.addEventListener("click", () => {
+            const keys = keysOf(list);
+            const key = "br" + (Math.max(0, ...keys.filter(isBreakKey).map(k => +k.slice(2))) + 1);
+            const row = rowFor(breakItem(key));
+            flip(list, () => list.insertBefore(row, list.children[Math.ceil(keys.length / 2)] || null), row);
+            row.classList.add("gpt-flash");
+            commit(keysOf(list));
+        });
+        panel.append(add);
         const sub2 = subhead("Page");
         // A plain on/off option (on by default).
         const option = (key, text) => {
