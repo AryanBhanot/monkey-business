@@ -5,7 +5,7 @@
 // @author      AryanBhanot
 // @icon        https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/icons/play-store-tweaks.png?v=0.10.0
 // @match       https://play.google.com/store/*
-// @version     0.15.0
+// @version     0.16.0
 // @license     MIT
 // @homepageURL https://github.com/AryanBhanot/monkey-business
 // @supportURL  https://github.com/AryanBhanot/monkey-business/issues
@@ -30,16 +30,20 @@
     // Google's own Install, Share and Wishlist buttons (`google`) and any number of line breaks.
     const LINKS = [
         { key: "install", name: "Install", color: "#01875f", google: true, fixed: true, first: true }, // can be moved, never hidden
+        { key: "lang", name: "Language & region", color: "#00796b", lang: true }, // opens a menu, not a link
         { key: "beta", label: "Beta", name: "Beta testing page", color: "#8e24aa", url: c => `https://play.google.com/apps/testing/${enc(c.pkg)}` },
         { key: "copy", name: "Copy app info", color: "#455a64", copy: true },
-        { key: "apkmirror", label: "APKM", name: "APKMirror", color: "#ff8b14", url: c => `https://www.apkmirror.com/?post_type=app_release&searchtype=apk&s=${enc(c.pkg)}` },
-        { key: "androidpolice", label: "AP", name: "Android Police", color: "#e01a4f", url: c => `https://www.androidpolice.com/?s=${enc(c.title)}` }, // their logo red
-        { key: "appbrain", label: "AB", name: "AppBrain", color: "#3f51b5", url: c => `https://www.appbrain.com/app/${enc(c.pkg)}` },
-        { key: "exodus", label: "Exodus", name: "Exodus Privacy report", color: "#1565c0", url: c => `https://reports.exodus-privacy.eu.org/en/search/${enc(c.pkg)}/` },
-        { key: "lang", name: "Language & region", color: "#00796b", lang: true }, // opens a menu, not a link
         { key: "share", name: "Share", color: "#5f6368", google: true },
         { key: "wishlist", name: "Wishlist", color: "#5f6368", google: true },
+        { key: "apkmirror", label: "APKM", name: "APKMirror", color: "#ff8b14", same: true, url: c => `https://www.apkmirror.com/?post_type=app_release&searchtype=apk&s=${enc(c.pkg)}` },
+        { key: "androidpolice", label: "AP", name: "Android Police", color: "#e01a4f", same: true, url: c => `https://www.androidpolice.com/?s=${enc(c.title)}` }, // their logo red
+        { key: "appbrain", label: "AB", name: "AppBrain", color: "#3f51b5", same: true, url: c => `https://www.appbrain.com/app/${enc(c.pkg)}` },
+        { key: "exodus", label: "Exodus", name: "Exodus Privacy report", color: "#1565c0", url: c => `https://reports.exodus-privacy.eu.org/en/search/${enc(c.pkg)}/` },
+        { key: "fdroid", label: "F-Droid", name: "F-Droid (is it in the open-source store?)", color: "#2e7d32", url: c => `https://f-droid.org/packages/${enc(c.pkg)}/` },
     ];
+    // Default layout: one row with the main buttons (Share and Wishlist stay Google's), a line
+    // break, then the lookup sites.
+    const DEFAULT_ORDER = ["install", "lang", "beta", "copy", "share", "wishlist", "br1", "apkmirror", "androidpolice", "appbrain", "exodus", "fdroid"];
     // Line breaks live in the saved order as "br1", "br2", ...
     const isBreakKey = k => /^br\d+$/.test(k);
     const breakItem = key => ({ key, br: true, name: "Line break" });
@@ -147,7 +151,7 @@
     // Buttons and line breaks in the saved order. Anything never ordered goes last in default
     // order, except Install (`first`), which was always first.
     function ordered() {
-        const saved = Array.isArray(enabled.order) ? enabled.order : [];
+        const saved = Array.isArray(enabled.order) ? enabled.order : DEFAULT_ORDER;
         const out = [], seen = new Set();
         for (const k of saved) {
             if (seen.has(k)) continue;
@@ -561,6 +565,11 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
             const b = img.getBoundingClientRect();
             if (b.width >= 96 && b.left > rr.left + 120 && b.left < right &&b.top < rr.bottom + 40 && b.bottom > rr.top - 40) limit = limit ? Math.min(limit, b.left) : b.left;
         }
+        // APKM, AP and AB share one width: the widest of them (measured with the minimum cleared).
+        const same = [...bar.querySelectorAll(".gpt-same")];
+        for (const b of same) b.style.minWidth = "";
+        const w = Math.ceil(Math.max(0, ...same.map(b => b.getBoundingClientRect().width)));
+        if (w) for (const b of same) b.style.minWidth = w + "px";
         const mw = limit ? Math.floor(limit - rr.left - 24) + "px" : "";
         if (row.style.maxWidth !== mw) row.style.maxWidth = mw;
     }
@@ -590,9 +599,10 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
                 tag.className = "gpt-fmt";
                 a.append(icon(ICON_LANG), sep, tag);
                 labelLang(a);
-                a.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); clearLocale(); });
+                a.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); toggleLang(a); });
                 a.addEventListener("wheel", onLangWheel, { passive: false });
                 a.addEventListener("contextmenu", e => { e.preventDefault(); e.stopPropagation(); toggleLang(a); });
+                a.addEventListener("pointerdown", e => e.stopPropagation()); // keep Play's own handlers off our button
             } else if (l.copy) {
                 a.type = "button";
                 a.classList.add("gpt-copy");
@@ -612,6 +622,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
                 a.rel = "noopener noreferrer";
             }
             a.style.backgroundColor = l.color;
+            if (l.same) a.classList.add("gpt-same");
             return a;
         }
     }
@@ -1181,7 +1192,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         const code = btn._shown !== undefined ? btn._shown : p.gl || p.hl.split(/[-_]/)[0];
         btn.querySelector(".gpt-fmt").textContent = (code || "").toLowerCase();
         btn.querySelector(".gpt-sep").style.display = code ? "" : "none";
-        btn.title = "Language & country\nScroll: country · Shift + scroll: language\nClick: back to default · right-click: menu";
+        btn.title = "Language & country\nScroll: country · Shift + scroll: language\nClick or right-click: menu (pick Default to reset)";
         btn.setAttribute("aria-label", "Language and country");
     }
     // Scrolling previews a choice on the button and reloads once you stop for a moment.
