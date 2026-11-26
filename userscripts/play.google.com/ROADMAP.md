@@ -12,8 +12,7 @@ and only gets bug fixes.
   language or country (`hl=` / `gl=`), for checking regional availability and prices or getting an
   English page on a foreign store. Needs a dropdown of common languages and countries and a way
   to remember favourites.
-- **Screenshot tweaks.**
-  - Horizontal scrollbar on screenshot galleries.
+- **Horizontal scrollbar on screenshot galleries.**
 - **More mirror buttons, as plain links.** APKPure, APKCombo, Aptoide, APK-DL and similar. Each
   just opens the site's search or app page (no link extraction, no captcha handling), as one more
   entry in `LINKS`, so it is toggleable and draggable like the others. Each site's search URL
@@ -43,13 +42,3 @@ Needs a background worker, storage or real parsing, so it does not belong in the
   collection pages (titles). Includes a full forum-post copy format.
 - **"App not found" pages.** Show the download buttons plus an APKMirror search with
   Available / Not available.
-
-## Done
-
-- 0.11: drag menu rows from anywhere on the row; manager menu entries "Buttons & links…" and
-  "Copy options…"; click a screenshot to open the original full-size image (`=s0`, served as
-  PNG, which replaces the WEBP-to-PNG converter idea), with a switch in the gear menu; dark theme
-  checked.
-- 0.10: rename to Play Store Tweaks; choose what Copy copies (Name, Developer, ID, Link chips);
-  JSON format; Reset in both menus; slower menu auto-close; Beta first by default; stronger
-  hover; Android Police red.

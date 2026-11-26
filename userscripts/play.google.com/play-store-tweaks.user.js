@@ -5,7 +5,7 @@
 // @author      AryanBhanot
 // @icon        https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/icons/play-store-tweaks.png?v=0.10.0
 // @match       https://play.google.com/store/*
-// @version     0.11.0
+// @version     0.11.1
 // @license     MIT
 // @homepageURL https://github.com/AryanBhanot/monkey-business
 // @supportURL  https://github.com/AryanBhanot/monkey-business/issues
@@ -184,7 +184,6 @@
 .gpt-panel .gpt-row.gpt-current { box-shadow: inset 3px 0 0 var(--gpt-accent); }
 .gpt-panel .gpt-row.gpt-current .gpt-pick { color: var(--gpt-accent); font-weight: 500; }
 .gpt-panel .gpt-hint { padding-top: 10px; }
-html[data-gpt-shots="on"] img[role="button"][src*="play-lh.googleusercontent.com"] { cursor: zoom-in; }
 /* Title row with a Reset button on the right */
 .gpt-panel .gpt-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .gpt-panel .gpt-reset { margin: -4px -8px -4px 0; padding: 4px 8px; border: 0; border-radius: 6px; background: none; color: var(--gpt-accent);
@@ -482,28 +481,11 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
         }
     }
 
-    // Screenshots: a click opens the original image (full size, usually a PNG) in a new tab
-    // instead of Play's viewer. Middle-click does the same.
-    const SHOT = 'img[role="button"][src*="play-lh.googleusercontent.com"]';
-    const fullSize = src => src.replace(/=[^/=]*$/, "") + "=s0";
-    function onShot(e) {
-        if (enabled.shots === false || (e.type === "auxclick" && e.button !== 1) || e.button > 1) return;
-        const img = e.target.closest && e.target.closest(SHOT);
-        if (!img || img.closest(".gpt-bar, .gpt-panel")) return;
-        e.preventDefault();
-        e.stopImmediatePropagation(); // before Play's own handler opens its viewer
-        window.open(fullSize(img.currentSrc || img.src), "_blank", "noopener");
-    }
-    window.addEventListener("click", onShot, true);
-    window.addEventListener("auxclick", onShot, true);
-
     // Add, move or remove the bars so there is exactly one after each Install
     // button on the page. Safe to call repeatedly.
     function update() {
         syncTheme();
         unwrapRedirects();
-        const shots = enabled.shots === false ? "off" : "on";
-        if (document.documentElement.dataset.gptShots !== shots) document.documentElement.dataset.gptShots = shots;
         const page = location.pathname + location.search;
         if (page !== lastPage) { lastPage = page; floatSince = 0; }
         const existing = [...document.querySelectorAll(".gpt-bar")];
@@ -786,7 +768,7 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
     function toggleSettings(anchor) {
         if (document.getElementById("gpt-settings")) { closeSettings(); return; }
         closeSettings();
-        const resetKeys = ["order", "unwrap", "shots", ...LINKS.map(l => l.key)];
+        const resetKeys = ["order", "unwrap", ...LINKS.map(l => l.key)];
         const { panel, list } = newPanel("gpt-settings", "Play Store Tweaks", "Show next to Install · drag to reorder", resetKeys, () => {
             // The bars are rebuilt, so reopen on the new gear of the same app.
             const pkg = anchor && anchor.closest(".gpt-bar") ? anchor.closest(".gpt-bar").dataset.key.split("|")[0] : "";
@@ -827,11 +809,10 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
             return label;
         };
         const uLabel = option("unwrap", "Skip Google redirect links");
-        const sLabel = option("shots", "Open screenshots full size");
         const tip = document.createElement("div");
         tip.className = "gpt-sub gpt-hint";
         tip.textContent = "Tip: right-click Copy to choose what it copies.";
-        panel.append(sub2, uLabel, sLabel, tip);
+        panel.append(sub2, uLabel, tip);
         document.body.append(panel);
         placePanel(panel, anchor);
     }
