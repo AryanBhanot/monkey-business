@@ -5,7 +5,7 @@
 // @author      AryanBhanot
 // @icon        https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/icons/play-store-tweaks.png?v=0.10.0
 // @match       https://play.google.com/store/*
-// @version     0.16.0
+// @version     0.16.1
 // @license     MIT
 // @homepageURL https://github.com/AryanBhanot/monkey-business
 // @supportURL  https://github.com/AryanBhanot/monkey-business/issues
@@ -39,11 +39,10 @@
         { key: "androidpolice", label: "AP", name: "Android Police", color: "#e01a4f", same: true, url: c => `https://www.androidpolice.com/?s=${enc(c.title)}` }, // their logo red
         { key: "appbrain", label: "AB", name: "AppBrain", color: "#3f51b5", same: true, url: c => `https://www.appbrain.com/app/${enc(c.pkg)}` },
         { key: "exodus", label: "Exodus", name: "Exodus Privacy report", color: "#1565c0", url: c => `https://reports.exodus-privacy.eu.org/en/search/${enc(c.pkg)}/` },
-        { key: "fdroid", label: "F-Droid", name: "F-Droid (is it in the open-source store?)", color: "#2e7d32", url: c => `https://f-droid.org/packages/${enc(c.pkg)}/` },
     ];
     // Default layout: one row with the main buttons (Share and Wishlist stay Google's), a line
     // break, then the lookup sites.
-    const DEFAULT_ORDER = ["install", "lang", "beta", "copy", "share", "wishlist", "br1", "apkmirror", "androidpolice", "appbrain", "exodus", "fdroid"];
+    const DEFAULT_ORDER = ["install", "lang", "beta", "copy", "share", "wishlist", "br1", "apkmirror", "androidpolice", "appbrain", "exodus"];
     // Line breaks live in the saved order as "br1", "br2", ...
     const isBreakKey = k => /^br\d+$/.test(k);
     const breakItem = key => ({ key, br: true, name: "Line break" });
@@ -635,15 +634,28 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
     }
     // Mouse wheel over Copy cycles through the formats. One step per
     // notch; the short cooldown stops a trackpad from spinning through them all.
-    let lastWheel = 0;
-    function onCopyWheel(e) {
-        e.preventDefault();
+    // Wheel input is summed up until it adds to a full notch (100), then one step, then a
+    // cooldown, so a free-spinning wheel or trackpad moves one choice at a time.
+    let lastWheel = 0, lastEvt = 0, wheelAcc = 0;
+    function wheelDir(e) {
         const d = e.deltaY || e.deltaX; // some browsers turn Shift + wheel into a sideways scroll
         const now = Date.now();
-        if (!d || now - lastWheel < 120) return;
-        lastWheel = now;
+        if (!d) return 0;
+        if (now - lastEvt > 300) wheelAcc = 0; // a pause forgets a half notch
+        lastEvt = now;
+        if (now - lastWheel < 250) return 0;
+        wheelAcc += e.deltaMode === 1 ? d * 33 : d; // lines -> pixels
+        if (Math.abs(wheelAcc) < 100) return 0;
+        const dir = wheelAcc > 0 ? 1 : -1;
+        wheelAcc = 0; lastWheel = now;
+        return dir;
+    }
+    function onCopyWheel(e) {
+        e.preventDefault();
+        const dir = wheelDir(e);
+        if (!dir) return;
         const act = fmtActive(), i = act.indexOf(curFormat());
-        setFormat(act[(i + (d > 0 ? 1 : -1) + act.length) % act.length].key);
+        setFormat(act[(i + dir + act.length) % act.length].key);
     }
 
     // Copy button: gathers the app's details when clicked (so it is never stale),
@@ -1198,13 +1210,12 @@ html[data-gpt-theme="dark"] .gpt-panel label:hover { background: rgba(129,201,14
     // Scrolling previews a choice on the button and reloads once you stop for a moment.
     function onLangWheel(e) {
         e.preventDefault();
-        const d = e.deltaY || e.deltaX, now = Date.now();
-        if (!d || now - lastWheel < 120) return;
-        lastWheel = now;
+        const dir = wheelDir(e);
+        if (!dir) return;
         const btn = e.currentTarget, kind = e.shiftKey ? "hl" : "gl";
         const p = btn._pend || (btn._pend = pageLocale());
         const list = choices(kind), i = list.findIndex(c => same(c, p[kind]));
-        p[kind] = list[(i + (d > 0 ? 1 : -1) + list.length) % list.length];
+        p[kind] = list[(i + dir + list.length) % list.length];
         btn._shown = p[kind] || "–";
         labelLang(btn);
         clearTimeout(btn._go);
