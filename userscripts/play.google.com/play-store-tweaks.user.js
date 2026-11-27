@@ -5,7 +5,7 @@
 // @author      AryanBhanot
 // @icon        https://raw.githubusercontent.com/AryanBhanot/monkey-business/main/userscripts/play.google.com/icons/play-store-tweaks.png?v=0.10.0
 // @match       https://play.google.com/store/*
-// @version     0.18.1
+// @version     0.18.2
 // @license     MIT
 // @homepageURL https://github.com/AryanBhanot/monkey-business
 // @supportURL  https://github.com/AryanBhanot/monkey-business/issues
@@ -36,9 +36,9 @@
         { key: "share", name: "Share", color: "#5f6368", google: true },
         { key: "wishlist", name: "Wishlist", color: "#5f6368", google: true },
         { key: "apkmirror", label: "APKM", name: "APKMirror", color: "#ff8b14", same: true, url: c => `https://www.apkmirror.com/?post_type=app_release&searchtype=apk&s=${enc(c.pkg)}` },
-        { key: "androidpolice", label: "AP", name: "Android Police", color: "#e01a4f", same: true, url: c => `https://www.androidpolice.com/?s=${enc(c.title)}` }, // their logo red
+        { key: "androidpolice", label: "AP", name: "Android Police", color: "#e01a4f", same: true, url: c => `https://www.androidpolice.com/search/?q=${enc(c.title)}` }, // their logo red
         { key: "appbrain", label: "AB", name: "AppBrain", color: "#3f51b5", same: true, url: c => `https://www.appbrain.com/app/${enc(c.pkg)}` },
-        { key: "exodus", label: "Exodus", name: "Exodus Privacy report", color: "#1565c0", same: true, url: c => `https://reports.exodus-privacy.eu.org/en/search/${enc(c.pkg)}/` },
+        { key: "exodus", label: "Exodus", name: "Exodus Privacy report", color: "#1565c0", same: true, url: c => `https://reports.exodus-privacy.eu.org/en/reports/${enc(c.pkg)}/latest/` },
     ];
     // Default layout: one row with the main buttons (Share and Wishlist stay Google's), a line
     // break, then the lookup sites.
